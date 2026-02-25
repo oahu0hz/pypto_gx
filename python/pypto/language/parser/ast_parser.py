@@ -27,6 +27,7 @@ from .expr_evaluator import ExprEvaluator
 from .scope_manager import ScopeManager
 from .span_tracker import SpanTracker
 from .type_resolver import TypeResolver
+from ..typing.tiling import get_tiling_fields, is_tiling_class
 
 
 class ASTParser:
@@ -77,6 +78,9 @@ class ASTParser:
         self.current_if_builder = None
         self.current_loop_builder = None
 
+        # Registry mapping tiling param names to their flattened field vars
+        self.tiling_registry: dict[str, dict[str, ir.Var]] = {}
+
     def parse_function(
         self,
         func_def: ast.FunctionDef,
@@ -97,15 +101,41 @@ class ASTParser:
         # Enter function scope
         self.scope_manager.enter_scope("function")
 
+        # Reset tiling registry for this function scope
+        self.tiling_registry = {}
+
+        # Collect args to process, filtering out bare 'self'
+        args_to_process = [
+            arg for arg in func_def.args.args
+            if not (arg.arg == "self" and arg.annotation is None)
+        ]
+
+        # Pre-validate tiling constraints: at most 1 tiling param, must be last
+        tiling_param_names = [
+            arg.arg for arg in args_to_process
+            if arg.annotation is not None and self._resolve_tiling_class(arg.annotation) is not None
+        ]
+        if len(tiling_param_names) > 1:
+            raise ParserSyntaxError(
+                f"Function '{func_def.name}' has {len(tiling_param_names)} tiling parameters "
+                f"({', '.join(tiling_param_names)}), but at most 1 is allowed",
+                span=self.span_tracker.get_span(func_def),
+                hint="A kernel may have at most one tiling parameter",
+            )
+        if len(tiling_param_names) == 1:
+            if not args_to_process or args_to_process[-1].arg != tiling_param_names[0]:
+                tiling_arg = next(a for a in args_to_process if a.arg == tiling_param_names[0])
+                raise ParserSyntaxError(
+                    f"Tiling parameter '{tiling_param_names[0]}' must be the last parameter",
+                    span=self.span_tracker.get_span(tiling_arg),
+                    hint="Move the tiling parameter to the last position",
+                )
+
         # Begin building function
         with self.builder.function(func_name, func_span, type=func_type) as f:
-            # Parse parameters (skip 'self' if it's the first parameter without annotation)
-            for arg in func_def.args.args:
+            # Parse parameters
+            for arg in args_to_process:
                 param_name = arg.arg
-
-                # Skip 'self' parameter if it has no annotation (shouldn't happen if decorator stripped it)
-                if param_name == "self" and arg.annotation is None:
-                    continue
 
                 if arg.annotation is None:
                     raise ParserTypeError(
@@ -114,6 +144,16 @@ class ASTParser:
                         hint="Add a type annotation like: x: pl.Tensor[[64], pl.FP32]",
                     )
 
+                tiling_cls = self._resolve_tiling_class(arg.annotation)
+                if tiling_cls is not None:
+                    param_span = self.span_tracker.get_span(arg)
+                    field_vars: dict[str, ir.Var] = {}
+                    for field_name, dtype in get_tiling_fields(tiling_cls).items():
+                        flat_name = f"{param_name}_{field_name}"
+                        flat_var = f.param(flat_name, ir.ScalarType(dtype), param_span)
+                        field_vars[field_name] = flat_var
+                    self.tiling_registry[param_name] = field_vars
+                    continue  # do NOT register tiling name itself in scope
                 param_type, param_direction = self.type_resolver.resolve_param_type(arg.annotation)
                 param_span = self.span_tracker.get_span(arg)
 
@@ -145,6 +185,20 @@ class ASTParser:
         self.scope_manager.exit_scope()
 
         return f.get_result()
+
+    def _resolve_tiling_class(self, annotation: ast.expr) -> type | None:
+        """Return the tiling class if annotation refers to one in closure_vars, else None.
+
+        Args:
+            annotation: AST expression node for the annotation
+
+        Returns:
+            The resolved tiling class, or None if the annotation is not a tiling class
+        """
+        if not isinstance(annotation, ast.Name):
+            return None
+        cls = self.expr_evaluator.closure_vars.get(annotation.id)
+        return cls if is_tiling_class(cls) else None
 
     def parse_statement(self, stmt: ast.stmt) -> None:
         """Parse a statement node.
@@ -1754,12 +1808,24 @@ class ASTParser:
         Returns:
             IR expression
         """
-        # This might be accessing a DataType enum or similar
-        # For now, this is primarily used in calls, not standalone
+        span = self.span_tracker.get_span(attr)
+        if isinstance(attr.value, ast.Name):
+            obj_name = attr.value.id
+            field_name = attr.attr
+            if obj_name in self.tiling_registry:
+                field_vars = self.tiling_registry[obj_name]
+                if field_name in field_vars:
+                    return field_vars[field_name]
+                raise ParserTypeError(
+                    f"Tiling parameter '{obj_name}' has no field '{field_name}'",
+                    span=span,
+                    hint=f"Valid fields are: {', '.join(field_vars.keys())}",
+                )
         raise UnsupportedFeatureError(
             f"Standalone attribute access not supported: {ast.unparse(attr)}",
-            span=self.span_tracker.get_span(attr),
-            hint="Attribute access is only supported within function calls",
+            span=span,
+            hint="Attribute access is only supported for tiling parameters (e.g., tiling.x) "
+                 "or within function calls",
         )
 
     def parse_list(self, list_node: ast.List) -> ir.MakeTuple:

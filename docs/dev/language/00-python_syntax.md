@@ -280,6 +280,35 @@ def kernel(
 
 **Constraint:** `Scalar` parameters cannot have `InOut` direction (raises `ParserTypeError`).
 
+### Tiling Parameters
+
+A **tiling parameter** groups related scalar configuration values (loop bounds, offsets, etc.) into a named struct. Define a plain Python class with `int`, `float`, or `bool` field annotations:
+
+```python
+class Tiling:
+    m: int     # → Scalar[INT32]
+    n: int     # → Scalar[INT32]
+    scale: float  # → Scalar[FP32]
+```
+
+When used as a function parameter, each field is flattened to an individual scalar IR param named `{param}_{field}`:
+
+```python
+@pl.function
+def kernel(
+    x: pl.Tensor[[64], pl.FP32],
+    tiling: Tiling,              # flattened to tiling_m, tiling_n, tiling_scale
+) -> pl.Tensor[[64], pl.FP32]:
+    n: pl.Scalar[pl.INT32] = tiling.n   # resolves to tiling_n IR var
+    return x
+```
+
+**Constraints:**
+
+- At most **one** tiling parameter per function
+- The tiling parameter must be the **last** parameter
+- Only `int` (→ `INT32`), `float` (→ `FP32`), and `bool` (→ `BOOL`) field types are supported
+
 ## Complete Example
 
 ### Tensor Operations (Loop with iter_args)
