@@ -17,7 +17,7 @@ class Tensor:
         """初始构造函数：仅从真实的 torch.Tensor 构造"""
         self._dtype = str(tensor.dtype)
         self._addr = tensor.data_ptr()
-        self._layout = Layout(tensor.shape, tensor.stride)
+        self._layout = Layout(tuple(tensor.shape), tensor.stride())
         self._assumed_align = assumed_align
 
     @classmethod
@@ -31,28 +31,28 @@ class Tensor:
         instance._assumed_align = assumed_align
         return instance
 
-    def divide(self, layout: Layout, tile: Layout) -> Tensor:
+    def divide(self, layout: Layout, tile: Layout):
         """
         基于传入的 layout 和 tile 进行逻辑切分
         """
         new_layout = logical_divide(layout, tile)
         # 返回一个指向相同地址，但应用了新 layout 的对象
         return self._create_derived(
-            self._addr, 
-            new_layout, 
-            self._dtype, 
+            self._addr,
+            new_layout,
+            self._dtype,
             self._assumed_align
         )
 
-    def divide(self, tile: Layout) -> Tensor:
+    def divide(self, tile: Layout):
         """
         基于对象自身的 layout 和传入的 tile 进行逻辑切分
         """
         new_layout = logical_divide(self._layout, tile)
         return self._create_derived(
-            self._addr, 
-            new_layout, 
-            self._dtype, 
+            self._addr,
+            new_layout,
+            self._dtype,
             self._assumed_align
         )
 
@@ -76,8 +76,19 @@ class Tensor:
     def stride(self):
         return self._layout.stride
 
+    def __str__(self) -> str:
+        return f"Tensor<{self._addr:#x}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __setitem__(self, crd, value):
+        raise TypeError(f"Tensor is not indexable")
+
+    def __getitem__(self, crd):
+        raise TypeError(f"Tensor is not indexable")
+
 
 def from_torch(tensor: torch.Tensor, assumed_align=None):
     """从torch.Tensor构造张量"""
     return Tensor(tensor, assumed_align=assumed_align)
-
