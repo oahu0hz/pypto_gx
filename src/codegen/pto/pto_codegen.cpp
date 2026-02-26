@@ -401,6 +401,10 @@ void PTOCodegen::VisitStmt_(const AssignStmtPtr& op) {
     }
   }
 
+  if (auto src_var = As<ir::Var>(op->value_)) {
+    var_to_mlir_[op->var_->name_] = var_to_mlir_[src_var->name_];
+  }
+
   VisitExpr(op->value_);
 }
 
