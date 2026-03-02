@@ -27,6 +27,7 @@ from .expr_evaluator import ExprEvaluator
 from .scope_manager import ScopeManager
 from .span_tracker import SpanTracker
 from .type_resolver import TypeResolver
+from ..typing.tiling import ArrayFieldInfo, ScalarFieldInfo, get_tiling_fields, is_tiling_class
 
 
 class ASTParser:
@@ -77,6 +78,10 @@ class ASTParser:
         self.current_if_builder = None
         self.current_loop_builder = None
 
+        # Registry mapping tiling param names to their flattened field vars.
+        # Scalar fields map to a single ir.Var; array fields map to list[ir.Var].
+        self.tiling_registry: dict[str, dict[str, ir.Var | list[ir.Var]]] = {}
+
     def parse_function(
         self,
         func_def: ast.FunctionDef,
@@ -97,15 +102,41 @@ class ASTParser:
         # Enter function scope
         self.scope_manager.enter_scope("function")
 
+        # Reset tiling registry for this function scope
+        self.tiling_registry = {}
+
+        # Collect args to process, filtering out bare 'self'
+        args_to_process = [
+            arg for arg in func_def.args.args
+            if not (arg.arg == "self" and arg.annotation is None)
+        ]
+
+        # Pre-validate tiling constraints: at most 1 tiling param, must be last
+        tiling_param_names = [
+            arg.arg for arg in args_to_process
+            if arg.annotation is not None and self._resolve_tiling_class(arg.annotation) is not None
+        ]
+        if len(tiling_param_names) > 1:
+            raise ParserSyntaxError(
+                f"Function '{func_def.name}' has {len(tiling_param_names)} tiling parameters "
+                f"({', '.join(tiling_param_names)}), but at most 1 is allowed",
+                span=self.span_tracker.get_span(func_def),
+                hint="A kernel may have at most one tiling parameter",
+            )
+        if len(tiling_param_names) == 1:
+            if not args_to_process or args_to_process[-1].arg != tiling_param_names[0]:
+                tiling_arg = next(a for a in args_to_process if a.arg == tiling_param_names[0])
+                raise ParserSyntaxError(
+                    f"Tiling parameter '{tiling_param_names[0]}' must be the last parameter",
+                    span=self.span_tracker.get_span(tiling_arg),
+                    hint="Move the tiling parameter to the last position",
+                )
+
         # Begin building function
         with self.builder.function(func_name, func_span, type=func_type) as f:
-            # Parse parameters (skip 'self' if it's the first parameter without annotation)
-            for arg in func_def.args.args:
+            # Parse parameters
+            for arg in args_to_process:
                 param_name = arg.arg
-
-                # Skip 'self' parameter if it has no annotation (shouldn't happen if decorator stripped it)
-                if param_name == "self" and arg.annotation is None:
-                    continue
 
                 if arg.annotation is None:
                     raise ParserTypeError(
@@ -114,6 +145,24 @@ class ASTParser:
                         hint="Add a type annotation like: x: pl.Tensor[[64], pl.FP32]",
                     )
 
+                tiling_cls = self._resolve_tiling_class(arg.annotation)
+                if tiling_cls is not None:
+                    param_span = self.span_tracker.get_span(arg)
+                    field_vars: dict[str, ir.Var | list[ir.Var]] = {}
+                    for field_name, field_info in get_tiling_fields(tiling_cls).items():
+                        if isinstance(field_info, ScalarFieldInfo):
+                            flat_name = f"{param_name}_{field_name}"
+                            flat_var = f.param(flat_name, ir.ScalarType(field_info.dtype), param_span)
+                            field_vars[field_name] = flat_var
+                        else:  # ArrayFieldInfo
+                            vars_list: list[ir.Var] = []
+                            for i in range(field_info.size):
+                                flat_name = f"{param_name}_{field_name}_{i}"
+                                flat_var = f.param(flat_name, ir.ScalarType(field_info.dtype), param_span)
+                                vars_list.append(flat_var)
+                            field_vars[field_name] = vars_list
+                    self.tiling_registry[param_name] = field_vars
+                    continue  # do NOT register tiling name itself in scope
                 param_type, param_direction = self.type_resolver.resolve_param_type(arg.annotation)
                 param_span = self.span_tracker.get_span(arg)
 
@@ -145,6 +194,20 @@ class ASTParser:
         self.scope_manager.exit_scope()
 
         return f.get_result()
+
+    def _resolve_tiling_class(self, annotation: ast.expr) -> type | None:
+        """Return the tiling class if annotation refers to one in closure_vars, else None.
+
+        Args:
+            annotation: AST expression node for the annotation
+
+        Returns:
+            The resolved tiling class, or None if the annotation is not a tiling class
+        """
+        if not isinstance(annotation, ast.Name):
+            return None
+        cls = self.expr_evaluator.closure_vars.get(annotation.id)
+        return cls if is_tiling_class(cls) else None
 
     def parse_statement(self, stmt: ast.stmt) -> None:
         """Parse a statement node.
@@ -1754,12 +1817,32 @@ class ASTParser:
         Returns:
             IR expression
         """
-        # This might be accessing a DataType enum or similar
-        # For now, this is primarily used in calls, not standalone
+        span = self.span_tracker.get_span(attr)
+        if isinstance(attr.value, ast.Name):
+            obj_name = attr.value.id
+            field_name = attr.attr
+            if obj_name in self.tiling_registry:
+                field_vars = self.tiling_registry[obj_name]
+                if field_name in field_vars:
+                    val = field_vars[field_name]
+                    if isinstance(val, list):
+                        raise ParserTypeError(
+                            f"Array field '{field_name}' must be accessed with an integer index",
+                            span=span,
+                            hint=f"Use {obj_name}.{field_name}[0] through "
+                                 f"{obj_name}.{field_name}[{len(val) - 1}]",
+                        )
+                    return val  # scalar ir.Var
+                raise ParserTypeError(
+                    f"Tiling parameter '{obj_name}' has no field '{field_name}'",
+                    span=span,
+                    hint=f"Valid fields are: {', '.join(field_vars.keys())}",
+                )
         raise UnsupportedFeatureError(
             f"Standalone attribute access not supported: {ast.unparse(attr)}",
-            span=self.span_tracker.get_span(attr),
-            hint="Attribute access is only supported within function calls",
+            span=span,
+            hint="Attribute access is only supported for tiling parameters (e.g., tiling.x) "
+                 "or within function calls",
         )
 
     def parse_list(self, list_node: ast.List) -> ir.MakeTuple:
@@ -1802,6 +1885,40 @@ class ASTParser:
             nested = my_tuple[1][2]  # Creates nested TupleGetItemExpr
         """
         span = self.span_tracker.get_span(subscript)
+
+        # Check for tiling array field access: tiling.arr[i]
+        if isinstance(subscript.value, ast.Attribute):
+            attr = subscript.value
+            if (isinstance(attr.value, ast.Name)
+                    and attr.value.id in self.tiling_registry):
+                obj_name = attr.value.id
+                field_name = attr.attr
+                field_val = self.tiling_registry[obj_name].get(field_name)
+                if isinstance(field_val, list):
+                    if (not isinstance(subscript.slice, ast.Constant)
+                            or not isinstance(subscript.slice.value, int)):
+                        raise UnsupportedFeatureError(
+                            "Tiling array fields only support literal integer indices",
+                            span=span,
+                            hint=f"Use a constant index like tiling.{field_name}[0]",
+                        )
+                    idx = subscript.slice.value
+                    if idx < 0 or idx >= len(field_val):
+                        raise ParserTypeError(
+                            f"Index {idx} out of bounds for array field '{field_name}' "
+                            f"(size {len(field_val)})",
+                            span=span,
+                            hint=f"Valid indices are 0 to {len(field_val) - 1}",
+                        )
+                    return field_val[idx]
+                elif field_val is not None:
+                    # Scalar field accessed with subscript — helpful error
+                    raise ParserTypeError(
+                        f"Scalar field '{field_name}' does not support subscript access",
+                        span=span,
+                        hint=f"Use tiling.{field_name} directly (no index needed)",
+                    )
+
         value_expr = self.parse_expression(subscript.value)
 
         # Parse index from slice
