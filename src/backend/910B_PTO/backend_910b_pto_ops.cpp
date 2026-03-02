@@ -31,6 +31,7 @@ namespace backend {
 using ir::As;
 using ir::CallPtr;
 using ir::PipeType;
+using ir::PtrType;
 using ir::TensorType;
 using ir::Var;
 
@@ -575,6 +576,60 @@ REGISTER_BACKEND_OP(Backend910B_PTO, "block.print")
     .set_pipe(ir::PipeType::V)
     .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
       return MakePrintCodegenPTO("pto.tprint", op, codegen);
+    });
+
+// ptr.make_tensor: emit pto.make_tensor_view in function body
+static std::string MakePtrMakeTensorCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  std::string ptr_name = codegen.GetExprAsCode(op->args_[0]);
+  auto result_type = As<TensorType>(op->GetType());
+  INTERNAL_CHECK(result_type) << "ptr.make_tensor result must be TensorType";
+  auto shape_tuple = As<ir::MakeTuple>(op->args_[1]);
+  INTERNAL_CHECK(shape_tuple) << "ptr.make_tensor shape must be MakeTuple";
+  auto stride_tuple = As<ir::MakeTuple>(op->args_[2]);
+  INTERNAL_CHECK(stride_tuple) << "ptr.make_tensor stride must be MakeTuple";
+  std::string view_name = codegen.NewTemp();
+  codegen.SetTensorViewName(codegen.GetCurrentResultVarName(), view_name);
+  std::ostringstream oss;
+  oss << view_name << " = pto.make_tensor_view " << ptr_name << ", shape = [";
+  for (size_t j = 0; j < shape_tuple->elements_.size(); j++) {
+    if (j > 0) oss << ", ";
+    oss << codegen.GetExprAsCode(shape_tuple->elements_[j]);
+  }
+  oss << "] strides = [";
+  for (size_t j = 0; j < stride_tuple->elements_.size(); j++) {
+    if (j > 0) oss << ", ";
+    oss << codegen.GetExprAsCode(stride_tuple->elements_[j]);
+  }
+  oss << "] : " << codegen.GetTensorViewTypeString(result_type.get());
+  codegen.Emit(oss.str());
+  return "";
+}
+
+// ptr.addptr: emit pto.addptr
+static std::string MakePtrAddPtrCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  std::string ptr_name = codegen.GetExprAsCode(op->args_[0]);
+  std::string offset_name = codegen.GetExprAsCode(op->args_[1]);
+  std::string result_name = codegen.NewTemp();
+  auto result_type = As<PtrType>(op->GetType());
+  INTERNAL_CHECK(result_type) << "ptr.addptr result must be PtrType";
+  codegen.SetVarMlirName(codegen.GetCurrentResultVarName(), result_name);
+  codegen.Emit(result_name + " = pto.addptr " + ptr_name + ", " + offset_name + " : !pto.ptr<" +
+               codegen.GetTypeString(result_type->dtype_) + ">");
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "ptr.make_tensor")
+    .set_pipe(ir::PipeType::MTE2)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakePtrMakeTensorCodegenPTO(op, codegen);
+    });
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "ptr.addptr")
+    .set_pipe(ir::PipeType::MTE2)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakePtrAddPtrCodegenPTO(op, codegen);
     });
 
 }  // namespace backend

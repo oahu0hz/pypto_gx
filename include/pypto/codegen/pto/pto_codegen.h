@@ -124,6 +124,15 @@ class PTOCodegen : public CodegenBase {
    */
   std::string GetCurrentResultTileBufTypeString() const;
 
+  /** @brief Get IR variable name for the current assignment target (used by ptr op handlers). */
+  [[nodiscard]] std::string GetCurrentResultVarName() const;
+
+  /** @brief Register an IR var name → MLIR SSA name mapping (for non-tile op results). */
+  void SetVarMlirName(const std::string& ir_name, const std::string& mlir_name);
+
+  /** @brief Register IR var name → MLIR view name in both var_to_mlir_ and tensor_to_view_. */
+  void SetTensorViewName(const std::string& ir_name, const std::string& mlir_name);
+
  protected:
   // Override visitor methods for code generation - Statements
   void VisitStmt_(const ir::AssignStmtPtr& op) override;
@@ -208,6 +217,7 @@ class PTOCodegen : public CodegenBase {
   // Current function context
   ir::FunctionPtr current_function_;
   std::string current_result_buf_;
+  std::string current_result_var_name_;
   std::shared_ptr<const ir::TileType> current_result_tile_type_;
 
   const backend::Backend* backend_;  ///< Backend instance for querying op info

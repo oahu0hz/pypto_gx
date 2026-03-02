@@ -51,6 +51,7 @@ using ir::FunctionPtr;
 using ir::IfStmtPtr;
 using ir::MemRefPtr;
 using ir::ProgramPtr;
+using ir::PtrType;
 using ir::ScalarType;
 using ir::StmtPtr;
 using ir::TensorType;
@@ -224,6 +225,9 @@ void PTOCodegen::GenerateFunction(const FunctionPtr& func) {
 
     if (auto tensor_type = As<TensorType>(param->GetType())) {
       stream_ << "!pto.ptr<" << GetTypeString(tensor_type->dtype_) << ">";
+    } else if (auto ptr_type = As<PtrType>(param->GetType())) {
+      // PtrType params are raw pointers: emit as !pto.ptr<dtype>, no preamble view needed
+      stream_ << "!pto.ptr<" << GetTypeString(ptr_type->dtype_) << ">";
     } else if (auto scalar_type = As<ScalarType>(param->GetType())) {
       stream_ << GetTypeString(scalar_type->dtype_);
     } else {
@@ -249,7 +253,12 @@ void PTOCodegen::GenerateFunction(const FunctionPtr& func) {
         int64_t dim = GetConstIntValue(j);
         GetOrEmitIndexConstant(dim);
       }
-      if (tensor_type->shape_.size() == 2) {
+      if (tensor_type->tensor_view_.has_value() && !tensor_type->tensor_view_->stride.empty()) {
+        // Pre-emit explicit stride constants
+        for (const auto& s : tensor_type->tensor_view_->stride) {
+          GetOrEmitIndexConstant(GetConstIntValue(s));
+        }
+      } else if (tensor_type->shape_.size() == 2) {
         int64_t dim1 = GetConstIntValue(tensor_type->shape_[1]);
         GetOrEmitIndexConstant(dim1);
         GetOrEmitIndexConstant(1);
@@ -320,7 +329,14 @@ void PTOCodegen::EmitMakeTensorViews(const FunctionPtr& func) {
       stream_ << "]";
 
       stream_ << " strides = [";
-      if (tensor_type->shape_.size() == 2) {
+      if (tensor_type->tensor_view_.has_value() && !tensor_type->tensor_view_->stride.empty()) {
+        // Use explicit stride
+        for (size_t j = 0; j < tensor_type->tensor_view_->stride.size(); j++) {
+          if (j > 0) stream_ << ", ";
+          int64_t sv = GetConstIntValue(tensor_type->tensor_view_->stride[j]);
+          stream_ << GetOrEmitIndexConstant(sv);
+        }
+      } else if (tensor_type->shape_.size() == 2) {
         int64_t dim1 = GetConstIntValue(tensor_type->shape_[1]);
         stream_ << GetOrEmitIndexConstant(dim1) << ", " << GetOrEmitIndexConstant(1);
       } else if (tensor_type->shape_.size() == 1) {
@@ -394,7 +410,9 @@ void PTOCodegen::VisitStmt_(const AssignStmtPtr& op) {
       }
       current_result_buf_ = result_buf;
       current_result_tile_type_ = result_tile_type;
+      current_result_var_name_ = op->var_->name_;
       VisitExpr(op->value_);
+      current_result_var_name_.clear();
       current_result_buf_.clear();
       current_result_tile_type_ = nullptr;
       return;
@@ -616,6 +634,17 @@ std::string PTOCodegen::GetCurrentResultTileBufTypeString() const {
     return GetTileBufTypeString(current_result_tile_type_->memref_.value().get());
   }
   return "";
+}
+
+std::string PTOCodegen::GetCurrentResultVarName() const { return current_result_var_name_; }
+
+void PTOCodegen::SetVarMlirName(const std::string& ir_name, const std::string& mlir_name) {
+  var_to_mlir_[ir_name] = mlir_name;
+}
+
+void PTOCodegen::SetTensorViewName(const std::string& ir_name, const std::string& mlir_name) {
+  var_to_mlir_[ir_name] = mlir_name;
+  tensor_to_view_[ir_name] = mlir_name;
 }
 
 // ========================================================================

@@ -1179,11 +1179,11 @@ class TestLayoutResolution:
             resolver.resolve_type(node)
 
     def test_tile_with_layout_raises_error(self):
-        """Tile does not support layout syntax."""
+        """Tile does not support layout/stride syntax - only [shape, dtype] is accepted."""
         resolver = _make_resolver()
         node = ast.parse("pl.Tile[[64, 64], pl.FP32, pl.NZ]", mode="eval").body
 
-        with pytest.raises(ParserTypeError, match="Layout is only supported for Tensor"):
+        with pytest.raises(ParserTypeError, match="Tile subscript requires"):
             resolver.resolve_type(node)
 
     def test_resolve_layout_bare_name(self):
@@ -1349,6 +1349,125 @@ class TestLayoutIntegration:
         assert isinstance(param_type, ir.TensorType)
         assert param_type.tensor_view is not None
         assert param_type.tensor_view.layout == ir.TensorLayout.DN
+
+
+class TestTensorStride:
+    """Tests for Tensor stride annotation: pl.Tensor[[shape], dtype, stride] and
+    pl.Tensor[[shape], dtype, layout, stride]."""
+
+    def test_stride_only_annotation(self):
+        """pl.Tensor[[64, 128], pl.FP32, [128, 1]] sets stride and default ND layout."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Tensor[[64, 128], pl.FP32, [128, 1]]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.TensorType)
+        assert result.tensor_view is not None
+        assert result.tensor_view.layout == ir.TensorLayout.ND
+        assert len(result.tensor_view.stride) == 2
+        assert isinstance(result.tensor_view.stride[0], ir.ConstInt)
+        assert result.tensor_view.stride[0].value == 128
+        assert isinstance(result.tensor_view.stride[1], ir.ConstInt)
+        assert result.tensor_view.stride[1].value == 1
+
+    def test_layout_and_stride_annotation(self):
+        """pl.Tensor[[64, 128], pl.FP32, pl.NZ, [128, 1]] sets both layout and stride."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Tensor[[64, 128], pl.FP32, pl.NZ, [128, 1]]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.TensorType)
+        assert result.tensor_view is not None
+        assert result.tensor_view.layout == ir.TensorLayout.NZ
+        assert len(result.tensor_view.stride) == 2
+        assert result.tensor_view.stride[0].value == 128
+        assert result.tensor_view.stride[1].value == 1
+
+    def test_no_stride_keeps_existing_behavior(self):
+        """pl.Tensor[[64, 128], pl.FP32] has no tensor_view (unchanged behavior)."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Tensor[[64, 128], pl.FP32]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.TensorType)
+        assert result.tensor_view is None
+
+    def test_layout_only_keeps_empty_stride(self):
+        """pl.Tensor[[64, 128], pl.FP32, pl.NZ] has layout but empty stride."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Tensor[[64, 128], pl.FP32, pl.NZ]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.TensorType)
+        assert result.tensor_view is not None
+        assert result.tensor_view.layout == ir.TensorLayout.NZ
+        assert len(result.tensor_view.stride) == 0
+
+    def test_stride_annotation_via_pl_function(self):
+        """@pl.function with explicit stride in type annotation."""
+
+        @pl.function
+        def func(x: pl.Tensor[[32, 32], pl.FP32, [32, 1]]) -> pl.Tensor[[32, 32], pl.FP32]:
+            return x
+
+        param_type = func.params[0].type
+        assert isinstance(param_type, ir.TensorType)
+        assert param_type.tensor_view is not None
+        assert len(param_type.tensor_view.stride) == 2
+        assert param_type.tensor_view.stride[0].value == 32
+        assert param_type.tensor_view.stride[1].value == 1
+
+    def test_layout_and_stride_via_pl_function(self):
+        """@pl.function with layout + stride annotation."""
+
+        @pl.function
+        def func(x: pl.Tensor[[32, 32], pl.FP32, pl.NZ, [32, 1]]) -> pl.Tensor[[32, 32], pl.FP32]:
+            return x
+
+        param_type = func.params[0].type
+        assert isinstance(param_type, ir.TensorType)
+        assert param_type.tensor_view is not None
+        assert param_type.tensor_view.layout == ir.TensorLayout.NZ
+        assert len(param_type.tensor_view.stride) == 2
+
+
+class TestPtrType:
+    """Tests for Ptr type annotation: pl.Ptr[dtype]."""
+
+    def test_ptr_basic_annotation(self):
+        """pl.Ptr[pl.FP32] resolves to PtrType with FP32 dtype."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Ptr[pl.FP32]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.PtrType)
+        assert result.dtype == DataType.FP32
+
+    def test_ptr_int_dtype(self):
+        """pl.Ptr[pl.INT8] resolves to PtrType with INT8 dtype."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Ptr[pl.INT8]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.PtrType)
+        assert result.dtype == DataType.INT8
+
+    def test_ptr_via_pl_function(self):
+        """@pl.function with pl.Ptr[pl.FP32] parameter resolves to PtrType."""
+
+        @pl.function
+        def func(ptr: pl.Ptr[pl.FP32]):
+            pass
+
+        assert isinstance(func.params[0].type, ir.PtrType)
+        assert func.params[0].type.dtype == DataType.FP32
+
+    def test_ptr_inout_raises(self):
+        """pl.Ptr with InOut direction raises ParserTypeError."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.InOut[pl.Ptr[pl.FP32]]", mode="eval").body
+        with pytest.raises(ParserTypeError, match="Ptr parameters cannot have InOut direction"):
+            resolver.resolve_param_type(node)
 
 
 if __name__ == "__main__":

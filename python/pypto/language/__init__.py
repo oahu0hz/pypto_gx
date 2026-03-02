@@ -105,6 +105,7 @@ from .op.block_ops import (
     xors,
 )
 from .op.tensor_ops import assemble, create_tensor, dim
+from .op.ptr_ops import addptr, make_tensor
 from .op.unified_ops import (
     add,
     cast,
@@ -122,7 +123,7 @@ from .op.unified_ops import (
 )
 from .parser.decorator import function, program
 from .parser.text_parser import loads, loads_program, parse, parse_program
-from .typing import DynVar, InOut, IntLike, Out, Scalar, Tensor, Tile, dynamic
+from .typing import DynVar, InOut, IntLike, Out, Ptr, Scalar, Tensor, Tile, dynamic
 
 # Re-export TensorLayout constants for convenience
 ND = TensorLayout.ND
@@ -161,6 +162,7 @@ __all__ = [
     "loads_program",
     "Tensor",
     "Tile",
+    "Ptr",
     "Scalar",
     "DynVar",
     "InOut",
@@ -253,6 +255,9 @@ __all__ = [
     "create_tensor",
     "assemble",
     "dim",
+    # Ptr ops
+    "make_tensor",
+    "addptr",
     "FunctionType",
     "ForKind",
     "MemorySpace",
