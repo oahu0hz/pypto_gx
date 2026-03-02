@@ -53,6 +53,9 @@ class PTOCodegen : public CodegenBase {
   std::string GetTileBufTypeString(const ir::MemRef* memref) const;
   std::string GetExprTypeAnnotation(const ir::ExprPtr& expr);
   std::string GetCurrentResultTileBufTypeString() const;
+  std::string GetCurrentResultVarName() const;
+  void SetVarMlirName(const std::string& ir_name, const std::string& mlir_name);
+  void SetTensorViewName(const std::string& ir_name, const std::string& mlir_name);
 };
 
 }  // namespace codegen
@@ -121,9 +124,12 @@ print(pto_code)
 
 | PyPTO Type | MLIR Parameter Type | Post-processing |
 | ---------- | ------------------- | --------------- |
-| `TensorType` | `!pto.ptr<dtype>` | Generate `pto.make_tensor_view` |
+| `TensorType` | `!pto.ptr<dtype>` | Generate `pto.make_tensor_view` preamble |
+| `PtrType` | `!pto.ptr<dtype>` | No preamble; use directly in `pl.make_tensor` |
 | `ScalarType` | `dtype` (e.g., `f32`) | Direct usage as `%argN` |
 | `TileType` | Not allowed as parameter | Must be computed internally |
+
+`PtrType` parameters emit the same MLIR type as `TensorType` but skip the preamble `pto.make_tensor_view`. They are used as the base-pointer argument to `pl.make_tensor` body ops.
 
 ## Code Generation Details
 
@@ -141,9 +147,32 @@ For each `TensorType` parameter, the codegen generates:
 **Key aspects**:
 
 - Shape from `TensorType.shape_`
-- Strides computed as row-major: `[dim1, 1]` for 2D tensors
+- Strides: use `TensorType.tensor_view_.stride` if set (explicit stride from annotation or `pl.make_tensor`); fall back to row-major (`[dim1, 1]` for 2D, `[1]` for 1D)
 - Constants (`%c32`, `%c1`) auto-generated
 - Tensor view type uses `?` for each dimension (e.g., `?x?xf32` for 2D)
+
+### Body-Level Tensor View (`pl.make_tensor`)
+
+A `pl.make_tensor(ptr, shape, stride)` call in the function body emits `pto.make_tensor_view` **inside the body** (after allocations), allowing flexible remapping of a flat pointer to an n-D view:
+
+```mlir
+// Emitted in body — not in the parameter-view preamble
+%6 = pto.make_tensor_view %arg0, shape = [%c32, %c32]
+     strides = [%c32, %c1] : !pto.tensor_view<?x?xf32>
+```
+
+The result is registered in both `tensor_to_view_` and `var_to_mlir_` so subsequent load/store ops can reference it directly.
+
+### Body-Level Pointer Arithmetic (`pl.addptr`)
+
+A `pl.addptr(ptr, offset)` call emits `pto.addptr` inside the function body, advancing a raw pointer by an element count. This is used to compute sub-buffer addresses from a single workspace pointer:
+
+```mlir
+%1 = pto.addptr %arg0, %c0 : !pto.ptr<f32>
+%2 = pto.addptr %1, %c1024 : !pto.ptr<f32>
+```
+
+The result is stored in `var_to_mlir_` so it can be used as the pointer argument to a subsequent `pto.make_tensor_view`.
 
 ### Allocation Generation
 

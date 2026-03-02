@@ -283,6 +283,11 @@ std::string IRPythonPrinter::Print(const TypePtr& type) {
     return prefix_ + ".Scalar[" + prefix_ + "." + DataTypeToString(scalar_type->dtype_) + "]";
   }
 
+  if (auto ptr_type = As<PtrType>(type)) {
+    // Print as pl.Ptr[pl.FP32]
+    return prefix_ + ".Ptr[" + prefix_ + "." + DataTypeToString(ptr_type->dtype_) + "]";
+  }
+
   if (auto tensor_type = As<TensorType>(type)) {
     std::ostringstream oss;
     // Subscript-style: pl.Tensor[[shape], dtype]

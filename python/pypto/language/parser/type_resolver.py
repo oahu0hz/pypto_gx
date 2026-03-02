@@ -118,10 +118,11 @@ class TypeResolver:
                 hint="Tuple types are only supported as return types",
             )
 
-        # Validate: Scalar + InOut is not allowed
-        if direction == ir.ParamDirection.InOut and isinstance(resolved, ir.ScalarType):
+        # Validate: Scalar/Ptr + InOut is not allowed
+        if direction == ir.ParamDirection.InOut and isinstance(resolved, (ir.ScalarType, ir.PtrType)):
+            type_name = "Scalar" if isinstance(resolved, ir.ScalarType) else "Ptr"
             raise ParserTypeError(
-                "Scalar parameters cannot have InOut direction",
+                f"{type_name} parameters cannot have InOut direction",
                 hint="Only Tensor and Tile parameters support InOut direction",
             )
 
@@ -153,9 +154,9 @@ class TypeResolver:
         Returns:
             Type name string if recognized, None otherwise
         """
-        if isinstance(node, ast.Attribute) and node.attr in ("Tensor", "Tile", "Scalar"):
+        if isinstance(node, ast.Attribute) and node.attr in ("Tensor", "Tile", "Scalar", "Ptr"):
             return node.attr
-        if isinstance(node, ast.Name) and node.id in ("Tensor", "Tile", "Scalar"):
+        if isinstance(node, ast.Name) and node.id in ("Tensor", "Tile", "Scalar", "Ptr"):
             return node.id
         return None
 
@@ -187,12 +188,12 @@ class TypeResolver:
         if isinstance(type_node, ast.Attribute):
             raise ParserTypeError(
                 f"Incomplete type annotation: {ast.unparse(type_node)}",
-                hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], or pl.Scalar[dtype]",
+                hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], pl.Scalar[dtype], or pl.Ptr[dtype]",
             )
 
         raise ParserTypeError(
             f"Unsupported type annotation: {ast.unparse(type_node)}",
-            hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], or pl.Scalar[dtype]",
+            hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], pl.Scalar[dtype], or pl.Ptr[dtype]",
         )
 
     def _resolve_subscript_type(self, subscript_node: ast.Subscript) -> ir.Type:
@@ -221,7 +222,7 @@ class TypeResolver:
         if type_name is None:
             raise ParserTypeError(
                 f"Unknown type in subscript: {ast.unparse(value)}",
-                hint="Use pl.Tensor for tensor types, pl.Tile for tile types, or pl.Scalar for scalar types",
+                hint="Use pl.Tensor for tensor types, pl.Tile for tile types, pl.Scalar for scalar types, or pl.Ptr for pointer types",
             )
 
         slice_value = subscript_node.slice
@@ -229,6 +230,10 @@ class TypeResolver:
         if type_name == "Scalar":
             dtype = self.resolve_dtype(slice_value)
             return ir.ScalarType(dtype)
+
+        if type_name == "Ptr":
+            dtype = self.resolve_dtype(slice_value)
+            return ir.PtrType(dtype)
 
         # Tensor: [shape, dtype], [shape, dtype, layout_or_memref], [shape, dtype, layout, memref]
         # Tile: [shape, dtype], [shape, dtype, memref]

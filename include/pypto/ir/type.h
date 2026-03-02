@@ -552,6 +552,35 @@ inline MemRefTypePtr GetMemRefType() {
   return memref_type;
 }
 
+/**
+ * @brief Pointer type representation
+ *
+ * Represents a raw pointer to global memory of a specific element type.
+ * Corresponds to `!pto.ptr<dtype>` in PTO MLIR.
+ * Used as the base-pointer argument for `pl.make_tensor` body ops.
+ */
+class PtrType : public Type {
+ public:
+  DataType dtype_;  ///< Element type pointed to
+
+  /**
+   * @brief Create a pointer type
+   *
+   * @param dtype Element data type
+   */
+  explicit PtrType(DataType dtype) : dtype_(dtype) {}
+
+  [[nodiscard]] ObjectKind GetKind() const override { return ObjectKind::PtrType; }
+  [[nodiscard]] std::string TypeName() const override { return "PtrType"; }
+
+  static constexpr auto GetFieldDescriptors() {
+    return std::tuple_cat(Type::GetFieldDescriptors(),
+                          std::make_tuple(reflection::UsualField(&PtrType::dtype_, "dtype")));
+  }
+};
+
+using PtrTypePtr = std::shared_ptr<const PtrType>;
+
 }  // namespace ir
 }  // namespace pypto
 

@@ -1351,5 +1351,44 @@ class TestLayoutIntegration:
         assert param_type.tensor_view.layout == ir.TensorLayout.DN
 
 
+class TestPtrType:
+    """Tests for Ptr type annotation: pl.Ptr[dtype]."""
+
+    def test_ptr_basic_annotation(self):
+        """pl.Ptr[pl.FP32] resolves to PtrType with FP32 dtype."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Ptr[pl.FP32]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.PtrType)
+        assert result.dtype == DataType.FP32
+
+    def test_ptr_int_dtype(self):
+        """pl.Ptr[pl.INT8] resolves to PtrType with INT8 dtype."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.Ptr[pl.INT8]", mode="eval").body
+        result = resolver.resolve_type(node)
+
+        assert isinstance(result, ir.PtrType)
+        assert result.dtype == DataType.INT8
+
+    def test_ptr_via_pl_function(self):
+        """@pl.function with pl.Ptr[pl.FP32] parameter resolves to PtrType."""
+
+        @pl.function
+        def func(ptr: pl.Ptr[pl.FP32]):
+            pass
+
+        assert isinstance(func.params[0].type, ir.PtrType)
+        assert func.params[0].type.dtype == DataType.FP32
+
+    def test_ptr_inout_raises(self):
+        """pl.Ptr with InOut direction raises ParserTypeError."""
+        resolver = _make_resolver()
+        node = ast.parse("pl.InOut[pl.Ptr[pl.FP32]]", mode="eval").body
+        with pytest.raises(ParserTypeError, match="Ptr parameters cannot have InOut direction"):
+            resolver.resolve_param_type(node)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

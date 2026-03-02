@@ -260,6 +260,8 @@ class ASTParser:
             self.parse_return(stmt)
         elif isinstance(stmt, ast.Expr):
             self.parse_evaluation_statement(stmt)
+        elif isinstance(stmt, ast.Pass):
+            pass  # No-op: pass statements are valid in DSL functions
         else:
             raise UnsupportedFeatureError(
                 f"Unsupported statement type: {type(stmt).__name__}",
@@ -1840,6 +1842,29 @@ class ASTParser:
             hint=f"Check if '{op_name}' is a valid system operation",
         )
 
+    def _parse_ptr_op(self, op_name: str, call: ast.Call) -> ir.Expr:
+        """Parse pointer operation (ptoas scene: make_tensor, addptr).
+
+        Args:
+            op_name: Name of pointer operation
+            call: Call AST node
+
+        Returns:
+            IR expression from pointer operation
+        """
+        args = [self.parse_expression(arg) for arg in call.args]
+        kwargs = self._parse_op_kwargs(call)
+        if hasattr(ir_op.ptr, op_name):
+            op_func = getattr(ir_op.ptr, op_name)
+            call_span = self.span_tracker.get_span(call)
+            return op_func(*args, **kwargs, span=call_span)
+
+        raise InvalidOperationError(
+            f"Unknown ptr operation: {op_name}",
+            span=self.span_tracker.get_span(call),
+            hint=f"Check if '{op_name}' is a valid ptr operation",
+        )
+
     # Manual ops that share block SSA semantics (no explicit output tile arg).
     # These are routed to _parse_block_op directly.
     _MANUAL_AS_BLOCK_OPS: frozenset[str] = frozenset({
@@ -1934,6 +1959,9 @@ class ASTParser:
         "mul_scalar",
         "div_scalar",
     }
+
+    # Ops that only exist in the ptr module (ptoas scene).
+    _PTR_ONLY_OPS = {"make_tensor", "addptr"}
     _BLOCK_ONLY_OPS = {
         "load",
         "store",
@@ -1986,6 +2014,8 @@ class ASTParser:
             IR expression from the dispatched operation
         """
         # Short-circuit for ops that only exist in one module
+        if op_name in self._PTR_ONLY_OPS:
+            return self._parse_ptr_op(op_name, call)
         if op_name in self._TENSOR_ONLY_OPS:
             return self._parse_tensor_op(op_name, call)
         if op_name in self._BLOCK_ONLY_OPS:
@@ -2024,7 +2054,7 @@ class ASTParser:
             f"Cannot dispatch '{op_name}': first argument has type {type(first_type).__name__}, "
             f"expected TensorType, TileType, or ScalarType",
             span=call_span,
-            hint="Use pl.tensor.* or pl.block.* for explicit dispatch",
+            hint="Use pl.tensor.* or pl.block.* for explicit dispatch; for pointer ops use pl.make_tensor or pl.addptr",
         )
 
     def _parse_typed_constant(self, call: ast.Call) -> ir.Expr:

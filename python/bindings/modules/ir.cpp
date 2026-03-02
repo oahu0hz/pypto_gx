@@ -188,6 +188,12 @@ void BindIR(nb::module_& m) {
   scalar_type_class.def(nb::init<DataType>(), nb::arg("dtype"), "Create a scalar type");
   BindFields<ScalarType>(scalar_type_class);
 
+  // PtrType - const shared_ptr
+  auto ptr_type_class =
+      nb::class_<PtrType, Type>(ir, "PtrType", "Pointer type representation (!pto.ptr<dtype>)");
+  ptr_type_class.def(nb::init<DataType>(), nb::arg("dtype"), "Create a pointer type");
+  BindFields<PtrType>(ptr_type_class);
+
   // IRNode - abstract base, const shared_ptr
   auto irnode_class = nb::class_<IRNode>(ir, "IRNode", "Base class for all IR nodes");
   BindFields<IRNode>(irnode_class);

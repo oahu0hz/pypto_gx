@@ -51,6 +51,7 @@ using ir::FunctionPtr;
 using ir::IfStmtPtr;
 using ir::MemRefPtr;
 using ir::ProgramPtr;
+using ir::PtrType;
 using ir::ScalarType;
 using ir::StmtPtr;
 using ir::TensorType;
@@ -248,6 +249,9 @@ void PTOCodegen::GenerateFunction(const FunctionPtr& func) {
 
     if (auto tensor_type = As<TensorType>(param->GetType())) {
       stream_ << "!pto.ptr<" << GetTypeString(tensor_type->dtype_) << ">";
+    } else if (auto ptr_type = As<PtrType>(param->GetType())) {
+      // PtrType params are raw pointers: emit as !pto.ptr<dtype>, no preamble view needed
+      stream_ << "!pto.ptr<" << GetTypeString(ptr_type->dtype_) << ">";
     } else if (auto scalar_type = As<ScalarType>(param->GetType())) {
       stream_ << GetTypeString(scalar_type->dtype_);
     } else {
@@ -477,12 +481,15 @@ void PTOCodegen::VisitStmt_(const AssignStmtPtr& op) {
       }
       current_result_buf_ = result_buf;
       current_result_tile_type_ = result_tile_type;
+      current_result_var_name_ = op->var_->name_;
       VisitExpr(op->value_);
       // If codegen changed the result buffer (e.g., reshape allocated a new tile),
       // update variable mapping so subsequent references use the new buffer
       if (!current_result_buf_.empty() && current_result_buf_ != result_buf) {
         var_to_mlir_[op->var_->name_] = current_result_buf_;
       }
+
+      current_result_var_name_.clear();
       current_result_buf_.clear();
       current_result_tile_type_ = nullptr;
       return;
@@ -769,6 +776,17 @@ std::string PTOCodegen::GetCurrentResultTileBufTypeString() const {
     return GetTileBufTypeStringFromTileType(current_result_tile_type_);
   }
   return "";
+}
+
+std::string PTOCodegen::GetCurrentResultVarName() const { return current_result_var_name_; }
+
+void PTOCodegen::SetVarMlirName(const std::string& ir_name, const std::string& mlir_name) {
+  var_to_mlir_[ir_name] = mlir_name;
+}
+
+void PTOCodegen::SetTensorViewName(const std::string& ir_name, const std::string& mlir_name) {
+  var_to_mlir_[ir_name] = mlir_name;
+  tensor_to_view_[ir_name] = mlir_name;
 }
 
 // ========================================================================

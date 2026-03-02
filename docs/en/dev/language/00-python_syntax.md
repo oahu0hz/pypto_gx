@@ -45,12 +45,50 @@ Available types:
 
 ```python
 # Tensor (subscript notation)
-a: pl.Tensor[[4, 8], pl.FP32]      # Fixed shape
-b: pl.Tensor[[n, m], pl.INT64]     # Symbolic shape
+a: pl.Tensor[[4, 8], pl.FP32]               # Fixed shape
+b: pl.Tensor[[n, m], pl.INT64]              # Symbolic shape
+c: pl.Tensor[[64, 128], pl.FP32, pl.NZ]    # With layout (ND/DN/NZ)
 
 # Tile (block in unified buffer)
 t: pl.Tile[[16, 16], pl.FP16]
+
+# Ptr — raw pointer to global memory (no shape metadata)
+p: pl.Ptr[pl.FP32]   # pointer to FP32 elements → !pto.ptr<f32>
 ```
+
+### pl.Ptr — Raw Pointer Type
+
+`pl.Ptr[dtype]` declares a function parameter as a raw global-memory pointer without shape metadata. It maps to `!pto.ptr<dtype>` in PTO MLIR. Unlike `pl.Tensor`, no preamble `pto.make_tensor_view` is generated for `Ptr` parameters.
+
+Use `pl.Ptr` as the first argument to `pl.make_tensor` to create a shaped tensor view from the pointer inside the function body.
+
+### pl.make_tensor — Create a View in Function Body
+
+```python
+@pl.function
+def kernel(ptr: pl.Ptr[pl.FP32]):
+    # Create a 2D tensor view from the raw pointer with explicit stride
+    view: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(ptr, [32, 32], [32, 1])
+    tile = pl.load(view, offsets=[0, 0], shapes=[32, 32])
+    pl.store(tile, offsets=[0, 0], shapes=[32, 32], output_tensor=view)
+```
+
+`pl.make_tensor(ptr, shape, stride)` creates a new `pto.make_tensor_view` inside the function body, allowing flexible remapping of a raw pointer to an n-D view with user-specified strides. The first argument must be a `pl.Ptr[dtype]` parameter.
+
+### pl.addptr — Pointer Arithmetic
+
+When a single workspace pointer covers multiple sub-buffers, use `pl.addptr` to compute sub-buffer addresses before calling `pl.make_tensor`:
+
+```python
+@pl.function
+def kernel(workspace: pl.Ptr[pl.FP32]):
+    buf0: pl.Ptr[pl.FP32] = pl.addptr(workspace, 0)
+    buf1: pl.Ptr[pl.FP32] = pl.addptr(workspace, 1024)
+    view0: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(buf0, [32, 32], [32, 1])
+    view1: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(buf1, [32, 32], [32, 1])
+```
+
+`pl.addptr(ptr, offset)` emits `pto.addptr` in ptoas codegen and returns a new `pl.Ptr` with the same element dtype advanced by `offset` elements.
 
 ### Memory References (MemRef)
 

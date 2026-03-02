@@ -14,6 +14,7 @@ This module organizes language-level operations by category:
 - tensor: High-level tensor operations (TensorType)
 - block: Block-level tile operations (TileType)
 - system: Hardware synchronization primitives
+- ptr: Pointer arithmetic and tensor views from raw pointers (ptoas scene)
 
 A unified namespace (``pl.add``, ``pl.exp``, ...) auto-dispatches
 between tensor and block paths based on the input type (Tensor vs Tile).
@@ -23,6 +24,7 @@ namespaces remain available for cases where the caller wants to be explicit.
 
 from . import block_ops as block
 from . import system_ops as system
+from . import ptr_ops as ptr
 from . import tensor_ops as tensor
 
 # Promoted block-only ops (accessible as pl.load, etc.)
@@ -90,6 +92,9 @@ from .block_ops import (
 # Promoted tensor-only ops (accessible as pl.create_tensor, etc.)
 from .tensor_ops import assemble, create_tensor, dim
 
+# Promoted ptr ops (accessible as pl.make_tensor, pl.addptr)
+from .ptr_ops import addptr, make_tensor
+
 # Unified dispatch (overlapping ops)
 from .unified_ops import (
     add,
@@ -111,6 +116,7 @@ __all__ = [
     "block",
     "system",
     "tensor",
+    "ptr",
     # Unified dispatch
     "add",
     "sub",
@@ -188,4 +194,7 @@ __all__ = [
     "create_tensor",
     "assemble",
     "dim",
+    # Promoted ptr ops
+    "make_tensor",
+    "addptr",
 ]

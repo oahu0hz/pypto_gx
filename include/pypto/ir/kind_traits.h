@@ -98,6 +98,7 @@ DEFINE_KIND_TRAIT(ContinueStmt, ObjectKind::ContinueStmt)
 // Type types
 DEFINE_KIND_TRAIT(UnknownType, ObjectKind::UnknownType)
 DEFINE_KIND_TRAIT(ScalarType, ObjectKind::ScalarType)
+DEFINE_KIND_TRAIT(PtrType, ObjectKind::PtrType)
 // ShapedType is both a concrete type and a base class - handled separately below
 DEFINE_KIND_TRAIT(TensorType, ObjectKind::TensorType)
 DEFINE_KIND_TRAIT(TileType, ObjectKind::TileType)
@@ -170,8 +171,9 @@ struct KindTrait<UnaryExpr> {
 template <>
 struct KindTrait<Type> {
   static constexpr ObjectKind kinds[] = {ObjectKind::UnknownType, ObjectKind::ScalarType,
-                                         ObjectKind::ShapedType,  ObjectKind::TensorType,
-                                         ObjectKind::TileType,    ObjectKind::TupleType};
+                                         ObjectKind::PtrType,     ObjectKind::ShapedType,
+                                         ObjectKind::TensorType,  ObjectKind::TileType,
+                                         ObjectKind::TupleType};
   static constexpr size_t count = sizeof(kinds) / sizeof(ObjectKind);
 };
 
