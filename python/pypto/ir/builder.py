@@ -244,6 +244,38 @@ class IRBuilder:
             del self._begin_spans[ctx_id]
 
     @contextmanager
+    def section(self, section_kind: ir.SectionKind, span: ir.Span | None = None) -> Iterator["SectionBuilder"]:
+        """Context manager for building section statements.
+
+        Args:
+            section_kind: The kind of section (Vector or Cube)
+            span: Optional explicit span. If None, automatically captured.
+
+        Yields:
+            SectionBuilder: Helper object for building the section statement
+
+        Example:
+            >>> with ib.section(ir.SectionKind.Vector) as section_builder:
+            ...     # Vector section body
+            ...     ib.assign(y, add_expr)
+        """
+        begin_span = span if span is not None else self._capture_call_span()
+        ctx_id = self._ctx_counter
+        self._ctx_counter += 1
+        self._begin_spans[ctx_id] = begin_span
+
+        self._builder.begin_section(section_kind, begin_span)
+        builder_obj = SectionBuilder(self)
+        try:
+            yield builder_obj
+        finally:
+            end_span = self._capture_call_span() if span is None else span
+            combined_span = self._combine_spans(self._begin_spans[ctx_id], end_span)
+            result = self._builder.end_section(combined_span)
+            builder_obj._result = result
+            del self._begin_spans[ctx_id]
+
+    @contextmanager
     def program(self, name: str, span: ir.Span | None = None) -> Iterator["ProgramBuilder"]:
         """Context manager for building programs.
 
@@ -1145,6 +1177,28 @@ class ScopeBuilder:
 
         Returns:
             ScopeStmt: The completed scope statement IR node
+        """
+        assert self._result is not None
+        return self._result
+
+
+class SectionBuilder:
+    """Helper for building section statements within a section context."""
+
+    def __init__(self, builder: IRBuilder) -> None:
+        """Initialize section statement builder.
+
+        Args:
+            builder: Parent IR builder
+        """
+        self._builder = builder
+        self._result: ir.SectionStmt | None = None
+
+    def get_result(self) -> ir.SectionStmt:
+        """Get the built SectionStmt.
+
+        Returns:
+            SectionStmt: The completed section statement IR node
         """
         assert self._result is not None
         return self._result

@@ -353,6 +353,50 @@ StmtPtr IRBuilder::EndScope(const Span& end_span) {
   return scope_stmt;
 }
 
+// ========== Section Building ==========
+
+void IRBuilder::BeginSection(SectionKind section_kind, const Span& span) {
+  CHECK(!context_stack_.empty()) << "Cannot begin section: not inside a function or another valid context at "
+                                 << span.to_string();
+  context_stack_.push_back(std::make_unique<SectionContext>(section_kind, span));
+}
+
+StmtPtr IRBuilder::EndSection(const Span& end_span) {
+  CHECK(!context_stack_.empty() && CurrentContext()->GetType() == BuildContext::Type::SECTION)
+      << "Cannot end section: not inside a section context at " << end_span.to_string();
+
+  auto* section_ctx = static_cast<SectionContext*>(CurrentContext());
+
+  // Build body
+  StmtPtr body;
+  const auto& stmts = section_ctx->GetStmts();
+  if (stmts.empty()) {
+    body = std::make_shared<SeqStmts>(std::vector<StmtPtr>(), end_span);
+  } else if (stmts.size() == 1) {
+    body = stmts[0];
+  } else {
+    body = std::make_shared<SeqStmts>(stmts, end_span);
+  }
+
+  // Combine spans
+  const Span& begin_span = section_ctx->GetBeginSpan();
+  Span combined_span(begin_span.filename_, begin_span.begin_line_, begin_span.begin_column_,
+                     end_span.begin_line_, end_span.begin_column_);
+
+  // Create section statement
+  auto section_stmt = std::make_shared<SectionStmt>(section_ctx->GetSectionKind(), body, combined_span);
+
+  // Pop context
+  context_stack_.pop_back();
+
+  // Emit to parent context if it exists
+  if (!context_stack_.empty()) {
+    CurrentContext()->AddStmt(section_stmt);
+  }
+
+  return section_stmt;
+}
+
 // ========== Program Building ==========
 
 void IRBuilder::BeginProgram(const std::string& name, const Span& span) {

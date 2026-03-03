@@ -1549,6 +1549,33 @@ class ScopeStmt(Stmt):
             span: Source location
         """
 
+class SectionKind(enum.Enum):
+    """Section kind classification."""
+
+    Vector = 0
+    """Vector section for vector operations."""
+
+    Cube = 1
+    """Cube section for cube operations."""
+
+class SectionStmt(Stmt):
+    """Section statement: marks a region with specific section context (Vector or Cube)."""
+
+    section_kind: Final[SectionKind]
+    """The kind of section (Vector or Cube)."""
+
+    body: Final[Stmt]
+    """The nested statements."""
+
+    def __init__(self, section_kind: SectionKind, body: Stmt, span: Span) -> None:
+        """Create a section statement.
+
+        Args:
+            section_kind: The kind of section (Vector or Cube)
+            body: The nested statements
+            span: Source location
+        """
+
 class SeqStmts(Stmt):
     """Sequence of statements: a sequence of statements."""
 
@@ -2233,6 +2260,25 @@ class IRBuilder:
 
         Returns:
             The built scope statement
+        """
+
+    # Section building
+    def begin_section(self, section_kind: SectionKind, span: Span) -> None:
+        """Begin building a section statement.
+
+        Args:
+            section_kind: The kind of section (Vector or Cube)
+            span: Source location for section statement
+        """
+
+    def end_section(self, end_span: Span) -> SectionStmt:
+        """End building a section statement.
+
+        Args:
+            end_span: Source location for end of section
+
+        Returns:
+            The built section statement
         """
 
     # Program building

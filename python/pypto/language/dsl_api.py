@@ -447,6 +447,38 @@ class IncoreContext:
         pass
 
 
+class SectionVectorContext:
+    """Context manager for Vector section.
+
+    This is returned by pl.section_vector() and used with the 'with' statement.
+    The parser recognizes this pattern and creates a SectionStmt(Vector).
+    """
+
+    def __enter__(self) -> None:
+        """Enter the Vector section context."""
+        pass
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the Vector section context."""
+        pass
+
+
+class SectionCubeContext:
+    """Context manager for Cube section.
+
+    This is returned by pl.section_cube() and used with the 'with' statement.
+    The parser recognizes this pattern and creates a SectionStmt(Cube).
+    """
+
+    def __enter__(self) -> None:
+        """Enter the Cube section context."""
+        pass
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the Cube section context."""
+        pass
+
+
 def incore() -> IncoreContext:
     """Mark a region of code as belonging to the InCore execution context.
 
@@ -464,6 +496,41 @@ def incore() -> IncoreContext:
     return IncoreContext()
 
 
+def section_vector() -> SectionVectorContext:
+    """Mark a region of code as belonging to the Vector section.
+
+    This function returns a context manager that should be used with the 'with' statement.
+    The parser recognizes this pattern and creates a SectionStmt with SectionKind.Vector.
+    In PTOAS codegen, this generates pto.section.vector { ... }.
+
+    Returns:
+        Context manager for Vector section
+
+    Examples:
+        >>> with pl.section_vector():
+        ...     tile = pl.load(input, offsets=[0, 0], shapes=[32, 32])
+        ...     result = pl.mul(tile, tile)
+    """
+    return SectionVectorContext()
+
+
+def section_cube() -> SectionCubeContext:
+    """Mark a region of code as belonging to the Cube section.
+
+    This function returns a context manager that should be used with the 'with' statement.
+    The parser recognizes this pattern and creates a SectionStmt with SectionKind.Cube.
+    In PTOAS codegen, this generates pto.section.cube { ... }.
+
+    Returns:
+        Context manager for Cube section
+
+    Examples:
+        >>> with pl.section_cube():
+        ...     result = pl.matmul_acc(a, b, c)
+    """
+    return SectionCubeContext()
+
+
 __all__ = [
     "const",
     "range",
@@ -472,9 +539,13 @@ __all__ = [
     "yield_",
     "cond",
     "incore",
+    "section_vector",
+    "section_cube",
     "RangeIterator",
     "WhileIterator",
     "IncoreContext",
+    "SectionVectorContext",
+    "SectionCubeContext",
     "RangeArg",
     "CondArg",
 ]

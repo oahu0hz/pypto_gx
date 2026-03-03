@@ -704,6 +704,19 @@ void BindIR(nb::module_& m) {
                        nb::arg("body"), nb::arg("span"), "Create a scope statement");
   BindFields<ScopeStmt>(scope_stmt_class);
 
+  // SectionKind enum
+  nb::enum_<SectionKind>(ir, "SectionKind", "Section kind classification")
+      .value("Vector", SectionKind::Vector, "Vector section for vector operations")
+      .value("Cube", SectionKind::Cube, "Cube section for cube operations")
+      .export_values();
+
+  // SectionStmt - const shared_ptr
+  auto section_stmt_class = nb::class_<SectionStmt, Stmt>(
+      ir, "SectionStmt", "Section statement: marks a region with specific section context (Vector or Cube)");
+  section_stmt_class.def(nb::init<SectionKind, const StmtPtr&, const Span&>(), nb::arg("section_kind"),
+                         nb::arg("body"), nb::arg("span"), "Create a section statement");
+  BindFields<SectionStmt>(section_stmt_class);
+
   // SeqStmts - const shared_ptr
   auto seq_stmts_class =
       nb::class_<SeqStmts, Stmt>(ir, "SeqStmts", "Sequence of statements: a sequence of statements");

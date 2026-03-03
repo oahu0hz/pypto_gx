@@ -467,6 +467,20 @@ StmtPtr IRMutator::VisitStmt_(const ScopeStmtPtr& op) {
   }
 }
 
+StmtPtr IRMutator::VisitStmt_(const SectionStmtPtr& op) {
+  // Visit and potentially mutate the body
+  INTERNAL_CHECK(op->body_) << "SectionStmt has null body";
+  auto new_body = StmtFunctor<StmtPtr>::VisitStmt(op->body_);
+  INTERNAL_CHECK(new_body) << "SectionStmt body mutated to null";
+
+  // Reconstruct if body changed
+  if (new_body.get() != op->body_.get()) {
+    return std::make_shared<const SectionStmt>(op->section_kind_, std::move(new_body), op->span_);
+  } else {
+    return op;
+  }
+}
+
 StmtPtr IRMutator::VisitStmt_(const SeqStmtsPtr& op) {
   std::vector<StmtPtr> new_stmts;
   bool changed = false;

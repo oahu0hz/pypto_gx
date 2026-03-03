@@ -723,6 +723,134 @@ class TestAddPtrCodegen:
         # pto.make_tensor_view must appear for each make_tensor call
         assert mlir_code.count("pto.make_tensor_view") == 2
 
+        
+def test_pto_codegen_section_vector():
+    """Test that pl.section_vector() generates pto.section.vector { ... }."""
+    backend.reset_for_testing()
+    backend.set_backend_type(BackendType.PTO)
+
+    @pl.program
+    class SectionVectorProgram:
+        @pl.function
+        def section_vector_test(
+            self,
+            input: pl.Tensor[[32, 32], pl.FP32],
+            output: pl.Tensor[[32, 32], pl.FP32],
+        ):
+            with pl.section_vector():
+                tile = pl.load(input, offsets=[0, 0], shapes=[32, 32])
+                result = pl.mul(tile, tile)
+                pl.store(result, offsets=[0, 0], shapes=[32, 32], output_tensor=output)
+
+    pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+    transformed_program = pm.run_passes(SectionVectorProgram)
+
+    codegen = PTOCodegen()
+    mlir_code = _get_mlir_code(codegen.generate(transformed_program))
+
+    assert "pto.section.vector {" in mlir_code
+    assert "}" in mlir_code
+    assert "pto.tload" in mlir_code
+    assert "pto.tmul" in mlir_code
+    assert "pto.tstore" in mlir_code
+
+
+def test_pto_codegen_section_cube():
+    """Test that pl.section_cube() generates pto.section.cube { ... }."""
+    backend.reset_for_testing()
+    backend.set_backend_type(BackendType.PTO)
+
+    @pl.program
+    class SectionCubeProgram:
+        @pl.function
+        def section_cube_test(
+            self,
+            input: pl.Tensor[[32, 32], pl.FP32],
+            output: pl.Tensor[[32, 32], pl.FP32],
+        ):
+            with pl.section_cube():
+                tile = pl.load(input, offsets=[0, 0], shapes=[32, 32])
+                result = pl.add(tile, 1.0)
+                pl.store(result, offsets=[0, 0], shapes=[32, 32], output_tensor=output)
+
+    pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+    transformed_program = pm.run_passes(SectionCubeProgram)
+
+    codegen = PTOCodegen()
+    mlir_code = _get_mlir_code(codegen.generate(transformed_program))
+
+    assert "pto.section.cube {" in mlir_code
+    assert "}" in mlir_code
+    assert "pto.tload" in mlir_code
+    assert "pto.tadds" in mlir_code
+    assert "pto.tstore" in mlir_code
+
+
+def test_pto_codegen_nested_sections():
+    """Test nested section_vector and section_cube."""
+    backend.reset_for_testing()
+    backend.set_backend_type(BackendType.PTO)
+
+    @pl.program
+    class NestedSectionProgram:
+        @pl.function
+        def nested_section_test(
+            self,
+            a: pl.Tensor[[32, 32], pl.FP32],
+            b: pl.Tensor[[32, 32], pl.FP32],
+            output: pl.Tensor[[32, 32], pl.FP32],
+        ):
+            with pl.section_vector():
+                tile_a = pl.load(a, offsets=[0, 0], shapes=[32, 32])
+                result_a = pl.mul(tile_a, tile_a)
+                pl.store(result_a, offsets=[0, 0], shapes=[32, 32], output_tensor=output)
+
+            with pl.section_cube():
+                tile_b = pl.load(b, offsets=[0, 0], shapes=[32, 32])
+                result_b = pl.add(tile_b, 2.0)
+                pl.store(result_b, offsets=[0, 0], shapes=[32, 32], output_tensor=output)
+
+    pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+    transformed_program = pm.run_passes(NestedSectionProgram)
+
+    codegen = PTOCodegen()
+    mlir_code = _get_mlir_code(codegen.generate(transformed_program))
+
+    assert mlir_code.count("pto.section.vector {") == 1
+    assert mlir_code.count("pto.section.cube {") == 1
+
+
+def test_pto_codegen_section_with_for_loop():
+    """Test section_vector with for loop inside."""
+    backend.reset_for_testing()
+    backend.set_backend_type(BackendType.PTO)
+
+    @pl.program
+    class SectionForLoopProgram:
+        @pl.function
+        def section_for_test(
+            self,
+            input: pl.Tensor[[64, 64], pl.FP32],
+            output: pl.Tensor[[64, 64], pl.FP32],
+        ):
+            with pl.section_vector():
+                for i in pl.range(0, 2):
+                    tile = pl.load(input, offsets=[i * 32, 0], shapes=[32, 32])
+                    result = pl.add(tile, 1.0)
+                    pl.store(result, offsets=[i * 32, 0], shapes=[32, 32], output_tensor=output)
+
+    pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+    transformed_program = pm.run_passes(SectionForLoopProgram)
+
+    codegen = PTOCodegen()
+    mlir_code = _get_mlir_code(codegen.generate(transformed_program))
+
+    assert "pto.section.vector {" in mlir_code
+    assert "scf.for" in mlir_code
+    assert "pto.tload" in mlir_code
+    assert "pto.tadds" in mlir_code
+    assert "pto.tstore" in mlir_code
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

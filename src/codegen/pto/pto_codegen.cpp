@@ -795,6 +795,31 @@ void PTOCodegen::VisitStmt_(const YieldStmtPtr& op) {
   yield_buffer_ = yielded_values;
 }
 
+void PTOCodegen::VisitStmt_(const ir::SectionStmtPtr& op) {
+  INTERNAL_CHECK(op != nullptr) << "Internal error: null SectionStmt";
+  INTERNAL_CHECK(op->body_ != nullptr) << "Internal error: SectionStmt has null body";
+
+  // Determine the section name based on section_kind
+  std::string section_name;
+  switch (op->section_kind_) {
+    case ir::SectionKind::Vector:
+      section_name = "vector";
+      break;
+    case ir::SectionKind::Cube:
+      section_name = "cube";
+      break;
+    default:
+      throw pypto::ValueError("Unknown SectionKind in SectionStmt");
+  }
+
+  // Emit pto.section.{vector|cube} {
+  Emit("pto.section." + section_name + " {");
+  indent_level_++;
+  VisitStmt(op->body_);
+  indent_level_--;
+  Emit("}");
+}
+
 void PTOCodegen::VisitStmt_(const IfStmtPtr& op) {
   INTERNAL_CHECK(op != nullptr) << "Internal error: null IfStmt";
   INTERNAL_CHECK(op->condition_ != nullptr) << "Internal error: IfStmt has null condition";

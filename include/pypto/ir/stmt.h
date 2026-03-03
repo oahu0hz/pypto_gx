@@ -50,6 +50,14 @@ enum class ScopeKind : uint8_t {
 };
 
 /**
+ * @brief Distinguishes different section kinds
+ */
+enum class SectionKind : uint8_t {
+  Vector = 0,  ///< Vector section for vector operations
+  Cube = 1     ///< Cube section for cube operations
+};
+
+/**
  * @brief Convert ForKind to string
  * @param kind The for loop kind
  * @return String representation ("Sequential" or "Parallel")
@@ -104,6 +112,37 @@ inline ScopeKind StringToScopeKind(const std::string& str) {
     return ScopeKind::InCore;
   } else {
     throw pypto::TypeError("Unknown ScopeKind: " + str);
+  }
+}
+
+/**
+ * @brief Convert SectionKind to string
+ * @param kind The section kind
+ * @return String representation ("Vector" or "Cube")
+ */
+inline std::string SectionKindToString(SectionKind kind) {
+  switch (kind) {
+    case SectionKind::Vector:
+      return "Vector";
+    case SectionKind::Cube:
+      return "Cube";
+  }
+  throw pypto::TypeError("Unknown SectionKind");
+}
+
+/**
+ * @brief Convert string to SectionKind
+ * @param str String representation
+ * @return SectionKind enum value
+ * @throws pypto::TypeError if string is not recognized
+ */
+inline SectionKind StringToSectionKind(const std::string& str) {
+  if (str == "Vector") {
+    return SectionKind::Vector;
+  } else if (str == "Cube") {
+    return SectionKind::Cube;
+  } else {
+    throw pypto::TypeError("Unknown SectionKind: " + str);
   }
 }
 
@@ -519,6 +558,62 @@ class ScopeStmt : public Stmt {
 };
 
 using ScopeStmtPtr = std::shared_ptr<const ScopeStmt>;
+
+/**
+ * @brief Section statement
+ *
+ * Represents a section region of code with a specific execution context.
+ * This is NOT a control flow node — it executes its body exactly once, linearly.
+ *
+ * **Syntax:**
+ * with pl.section_vector():
+ *     body
+ * or
+ * with pl.section_cube():
+ *     body
+ *
+ * **Semantics:**
+ * - Marks a region of code as belonging to a specific section (Vector or Cube)
+ * - Executes body exactly once (no iteration, no branching)
+ * - Variables flow through transparently
+ * - In PTOAS codegen, generates pto.section.vector { ... } or pto.section.cube { ... }
+ *
+ * **Key Properties:**
+ * - section_kind: The kind of section (Vector or Cube)
+ * - body: The nested statements to execute within this section
+ */
+class SectionStmt : public Stmt {
+ public:
+  /**
+   * @brief Create a section statement
+   *
+   * @param section_kind The kind of section
+   * @param body The nested statements
+   * @param span Source location
+   */
+  SectionStmt(SectionKind section_kind, StmtPtr body, Span span)
+      : Stmt(std::move(span)), section_kind_(section_kind), body_(std::move(body)) {}
+
+  [[nodiscard]] ObjectKind GetKind() const override { return ObjectKind::SectionStmt; }
+  [[nodiscard]] std::string TypeName() const override { return "SectionStmt"; }
+
+  /**
+   * @brief Get field descriptors for reflection-based visitation
+   *
+   * @return Tuple of field descriptors (section_kind and body as USUAL fields)
+   */
+  static constexpr auto GetFieldDescriptors() {
+    return std::tuple_cat(Stmt::GetFieldDescriptors(),
+                          std::make_tuple(reflection::UsualField(&SectionStmt::section_kind_, "section_kind"),
+                                          reflection::UsualField(&SectionStmt::body_, "body")));
+  }
+
+ public:
+  SectionKind section_kind_;  // The kind of section (Vector or Cube)
+  StmtPtr body_;              // The nested statements
+};
+
+using SectionStmtPtr = std::shared_ptr<const SectionStmt>;
 
 /**
  * @brief Sequence of statements

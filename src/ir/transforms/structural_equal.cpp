@@ -326,6 +326,18 @@ class StructuralEqualImpl {
     return true;
   }
 
+  [[nodiscard]] result_type VisitLeafField(const SectionKind& lhs, const SectionKind& rhs) {
+    if (lhs != rhs) {
+      if constexpr (AssertMode) {
+        std::ostringstream msg;
+        msg << "SectionKind mismatch (" << SectionKindToString(lhs) << " != " << SectionKindToString(rhs) << ")";
+        ThrowMismatch(msg.str(), IRNodePtr(), IRNodePtr(), "", "");
+      }
+      return false;
+    }
+    return true;
+  }
+
   result_type VisitLeafField(const ParamDirection& lhs, const ParamDirection& rhs) {
     if (lhs != rhs) {
       if constexpr (AssertMode) {
@@ -650,6 +662,7 @@ bool StructuralEqualImpl<AssertMode>::Equal(const IRNodePtr& lhs, const IRNodePt
   EQUAL_DISPATCH(ForStmt)
   EQUAL_DISPATCH(WhileStmt)
   EQUAL_DISPATCH(ScopeStmt)
+  EQUAL_DISPATCH(SectionStmt)
   EQUAL_DISPATCH(SeqStmts)
   EQUAL_DISPATCH(OpStmts)
   EQUAL_DISPATCH(EvalStmt)

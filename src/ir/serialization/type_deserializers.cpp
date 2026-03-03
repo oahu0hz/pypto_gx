@@ -461,6 +461,21 @@ static IRNodePtr DeserializeScopeStmt(const msgpack::object& fields_obj, msgpack
   return std::make_shared<ScopeStmt>(scope_kind, body, span);
 }
 
+// Deserialize SectionStmt
+static IRNodePtr DeserializeSectionStmt(const msgpack::object& fields_obj, msgpack::zone& zone,
+                                        DeserializerContext& ctx) {
+  auto span = ctx.DeserializeSpan(GET_FIELD_OBJ("span"));
+
+  // Deserialize section_kind
+  auto section_kind_str = GET_FIELD_OBJ("section_kind").as<std::string>();
+  auto section_kind = StringToSectionKind(section_kind_str);
+
+  // Deserialize body
+  auto body = std::static_pointer_cast<const Stmt>(ctx.DeserializeNode(GET_FIELD_OBJ("body"), zone));
+
+  return std::make_shared<SectionStmt>(section_kind, body, span);
+}
+
 // Deserialize SeqStmts
 static IRNodePtr DeserializeSeqStmts(const msgpack::object& fields_obj, msgpack::zone& zone,
                                      DeserializerContext& ctx) {
@@ -682,6 +697,7 @@ static TypeRegistrar _return_stmt_registrar("ReturnStmt", DeserializeReturnStmt)
 static TypeRegistrar _for_stmt_registrar("ForStmt", DeserializeForStmt);
 static TypeRegistrar _while_stmt_registrar("WhileStmt", DeserializeWhileStmt);
 static TypeRegistrar _scope_stmt_registrar("ScopeStmt", DeserializeScopeStmt);
+static TypeRegistrar _section_stmt_registrar("SectionStmt", DeserializeSectionStmt);
 static TypeRegistrar _seq_stmts_registrar("SeqStmts", DeserializeSeqStmts);
 static TypeRegistrar _op_stmts_registrar("OpStmts", DeserializeOpStmts);
 static TypeRegistrar _eval_stmt_registrar("EvalStmt", DeserializeEvalStmt);

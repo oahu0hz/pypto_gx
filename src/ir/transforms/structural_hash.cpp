@@ -162,6 +162,10 @@ class StructuralHasher {
     return static_cast<result_type>(std::hash<uint8_t>{}(static_cast<uint8_t>(field)));
   }
 
+  result_type VisitLeafField(const SectionKind& field) {
+    return static_cast<result_type>(std::hash<uint8_t>{}(static_cast<uint8_t>(field)));
+  }
+
   result_type VisitLeafField(const ParamDirection& field) {
     return static_cast<result_type>(std::hash<uint8_t>{}(static_cast<uint8_t>(field)));
   }
@@ -377,6 +381,7 @@ StructuralHasher::result_type StructuralHasher::HashNode(const IRNodePtr& node) 
   HASH_DISPATCH(ForStmt)
   HASH_DISPATCH(WhileStmt)
   HASH_DISPATCH(ScopeStmt)
+  HASH_DISPATCH(SectionStmt)
   HASH_DISPATCH(SeqStmts)
   HASH_DISPATCH(OpStmts)
   HASH_DISPATCH(EvalStmt)
