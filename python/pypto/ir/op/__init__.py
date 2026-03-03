@@ -14,9 +14,11 @@ This module organizes IR operations by category (e.g., tensor operations, block 
 """
 
 from . import block_ops as block
+from . import ptr_ops as ptr
 from . import tensor_ops as tensor
 
 __all__ = [
     "tensor",
     "block",
+    "ptr",
 ]

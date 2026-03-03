@@ -109,10 +109,11 @@ class TypeResolver:
                 hint="Tuple types are only supported as return types",
             )
 
-        # Validate: Scalar + InOut is not allowed
-        if direction == ir.ParamDirection.InOut and isinstance(resolved, ir.ScalarType):
+        # Validate: Scalar/Ptr + InOut is not allowed
+        if direction == ir.ParamDirection.InOut and isinstance(resolved, (ir.ScalarType, ir.PtrType)):
+            type_name = "Scalar" if isinstance(resolved, ir.ScalarType) else "Ptr"
             raise ParserTypeError(
-                "Scalar parameters cannot have InOut direction",
+                f"{type_name} parameters cannot have InOut direction",
                 hint="Only Tensor and Tile parameters support InOut direction",
             )
 
@@ -144,9 +145,9 @@ class TypeResolver:
         Returns:
             Type name string if recognized, None otherwise
         """
-        if isinstance(node, ast.Attribute) and node.attr in ("Tensor", "Tile", "Scalar"):
+        if isinstance(node, ast.Attribute) and node.attr in ("Tensor", "Tile", "Scalar", "Ptr"):
             return node.attr
-        if isinstance(node, ast.Name) and node.id in ("Tensor", "Tile", "Scalar"):
+        if isinstance(node, ast.Name) and node.id in ("Tensor", "Tile", "Scalar", "Ptr"):
             return node.id
         return None
 
@@ -178,12 +179,12 @@ class TypeResolver:
         if isinstance(type_node, ast.Attribute):
             raise ParserTypeError(
                 f"Incomplete type annotation: {ast.unparse(type_node)}",
-                hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], or pl.Scalar[dtype]",
+                hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], pl.Scalar[dtype], or pl.Ptr[dtype]",
             )
 
         raise ParserTypeError(
             f"Unsupported type annotation: {ast.unparse(type_node)}",
-            hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], or pl.Scalar[dtype]",
+            hint="Use pl.Tensor[[shape], dtype], pl.Tile[[shape], dtype], pl.Scalar[dtype], or pl.Ptr[dtype]",
         )
 
     def _resolve_subscript_type(self, subscript_node: ast.Subscript) -> ir.Type:
@@ -192,6 +193,8 @@ class TypeResolver:
         Supports:
         - pl.Tensor[[64, 128], pl.FP16]
         - pl.Tensor[[64, 128], pl.FP16, pl.NZ]
+        - pl.Tensor[[64, 128], pl.FP16, [128, 1]]
+        - pl.Tensor[[64, 128], pl.FP16, pl.NZ, [128, 1]]
         - pl.Tile[[64, 64], pl.FP32]
 
         Args:
@@ -209,7 +212,7 @@ class TypeResolver:
         if type_name is None:
             raise ParserTypeError(
                 f"Unknown type in subscript: {ast.unparse(value)}",
-                hint="Use pl.Tensor for tensor types, pl.Tile for tile types, or pl.Scalar for scalar types",
+                hint="Use pl.Tensor for tensor types, pl.Tile for tile types, pl.Scalar for scalar types, or pl.Ptr for pointer types",
             )
 
         slice_value = subscript_node.slice
@@ -218,27 +221,28 @@ class TypeResolver:
             dtype = self.resolve_dtype(slice_value)
             return ir.ScalarType(dtype)
 
-        # Tensor supports [shape, dtype] or [shape, dtype, layout]; Tile supports [shape, dtype]
-        if not isinstance(slice_value, ast.Tuple) or len(slice_value.elts) not in (2, 3):
+        if type_name == "Ptr":
+            dtype = self.resolve_dtype(slice_value)
+            return ir.PtrType(dtype)
+
+        # Tensor supports [shape, dtype], [shape, dtype, layout], [shape, dtype, stride],
+        # or [shape, dtype, layout, stride]; Tile supports [shape, dtype]
+        valid_counts = (2, 3, 4) if type_name == "Tensor" else (2,)
+        if not isinstance(slice_value, ast.Tuple) or len(slice_value.elts) not in valid_counts:
             if type_name == "Tensor":
                 message = (
-                    f"{type_name} subscript requires [shape, dtype] or [shape, dtype, layout], "
+                    f"{type_name} subscript requires [shape, dtype], [shape, dtype, layout], "
+                    f"[shape, dtype, stride], or [shape, dtype, layout, stride], "
                     f"got: {ast.unparse(slice_value)}"
                 )
                 hint = (
-                    "Use pl.Tensor[[shape], dtype] or pl.Tensor[[shape], dtype, layout] format, e.g., "
-                    "pl.Tensor[[64, 128], pl.FP32, pl.NZ]"
+                    "Use pl.Tensor[[shape], dtype], pl.Tensor[[shape], dtype, layout], "
+                    "pl.Tensor[[shape], dtype, [stride]], or pl.Tensor[[shape], dtype, layout, [stride]] format"
                 )
             else:
                 message = f"{type_name} subscript requires [shape, dtype], got: {ast.unparse(slice_value)}"
                 hint = f"Use pl.{type_name}[[shape], dtype] format, e.g., pl.{type_name}[[64, 128], pl.FP32]"
             raise ParserTypeError(message, hint=hint)
-
-        if len(slice_value.elts) == 3 and type_name != "Tensor":
-            raise ParserTypeError(
-                f"Layout is only supported for Tensor, not {type_name}",
-                hint=f"Use pl.{type_name}[[shape], dtype] format without layout",
-            )
 
         shape_node = slice_value.elts[0]
         dtype_node = slice_value.elts[1]
@@ -250,8 +254,23 @@ class TypeResolver:
             return ir.TileType(shape, dtype)
 
         if len(slice_value.elts) == 3:
+            third = slice_value.elts[2]
+            if isinstance(third, ast.List):
+                # 3-element with stride: [shape, dtype, stride]
+                stride_exprs = self._to_expr_list(self._parse_shape(third))
+                tensor_view = ir.TensorView(stride_exprs, ir.TensorLayout.ND)
+                return ir.TensorType(shape, dtype, None, tensor_view)
+            else:
+                # 3-element with layout: [shape, dtype, layout]
+                layout = self.resolve_layout(third)
+                tensor_view = ir.TensorView([], layout)
+                return ir.TensorType(shape, dtype, None, tensor_view)
+
+        if len(slice_value.elts) == 4:
+            # 4-element: [shape, dtype, layout, stride]
             layout = self.resolve_layout(slice_value.elts[2])
-            tensor_view = ir.TensorView([], layout)
+            stride_exprs = self._to_expr_list(self._parse_shape(slice_value.elts[3]))
+            tensor_view = ir.TensorView(stride_exprs, layout)
             return ir.TensorType(shape, dtype, None, tensor_view)
 
         return ir.TensorType(shape, dtype)
@@ -552,6 +571,19 @@ class TypeResolver:
 
         # Convert all to Expr
         return [ir.ConstInt(d, DataType.INDEX, ir.Span.unknown()) if isinstance(d, int) else d for d in shape]
+
+    def _to_expr_list(self, dims: list[int | ir.Expr]) -> list[ir.Expr]:
+        """Convert all dims to ir.Expr (ConstInt for int values).
+
+        Used for stride fields in TensorView, which require Expr elements.
+
+        Args:
+            dims: Mixed list of int and ir.Expr values
+
+        Returns:
+            List of ir.Expr (ConstInt for integers, unchanged for Expr)
+        """
+        return [ir.ConstInt(d, DataType.INDEX, ir.Span.unknown()) if isinstance(d, int) else d for d in dims]
 
     def resolve_dtype(self, dtype_node: ast.expr) -> DataType:
         """Resolve dtype annotation.

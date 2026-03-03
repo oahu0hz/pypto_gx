@@ -9,6 +9,7 @@ Type-safe operator definitions with automatic type deduction, organized into mod
 | **TensorOp** | TensorType | N-D tensor operations with broadcasting | `src/ir/op/tensor_ops/` |
 | **BlockOp** | TileType | Hardware-optimized block operations | `src/ir/op/block_ops/` |
 | **SyncOp** | UnknownType/PipeType | Pipeline barriers and synchronization | `src/ir/op/sync_ops/` |
+| **PtrOp** | PtrType / TensorType | Pointer arithmetic and tensor-view construction | `src/ir/op/ptr_ops.cpp` |
 
 **Key Features**: Fluent API, automatic type deduction, kwargs for metadata, NumPy-style broadcasting, type promotion, dynamic dimensions (`kDynamicDim`)
 

@@ -286,6 +286,24 @@ class ScalarType(Type):
             dtype: Data type
         """
 
+class PtrType(Type):
+    """Pointer type representation.
+
+    Represents a raw pointer to global memory of a specific element type.
+    Corresponds to ``!pto.ptr<dtype>`` in PTO MLIR.
+    Used as the base-pointer argument for ``pl.make_tensor`` body ops.
+    """
+
+    dtype: Final[DataType]
+    """Element type pointed to."""
+
+    def __init__(self, dtype: DataType) -> None:
+        """Create a pointer type.
+
+        Args:
+            dtype: Element data type
+        """
+
 class ShapedType(Type):
     """Base class for shaped types (tensors and tiles)."""
 

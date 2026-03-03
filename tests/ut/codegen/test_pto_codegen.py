@@ -594,5 +594,135 @@ class TestGenerateSkipPtoas:
             assert not key.endswith(".cpp"), f"Unexpected .cpp extension: {key}"
 
 
+class TestTensorStrideCodegen:
+    """Tests for explicit stride in Tensor type annotation affecting make_tensor_view codegen."""
+
+    def test_explicit_stride_2d(self):
+        """Explicit 2D stride in annotation emits correct strides in make_tensor_view."""
+        backend.reset_for_testing()
+        backend.set_backend_type(BackendType.PTO)
+
+        @pl.program
+        class StridedProgram:
+            @pl.function
+            def strided_func(self, a: pl.Tensor[[32, 32], pl.FP32, [32, 1]]):
+                tile = pl.load(a, offsets=[0, 0], shapes=[32, 32])
+                pl.store(tile, offsets=[0, 0], shapes=[32, 32], output_tensor=a)
+
+        pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+        transformed_program = pm.run_passes(StridedProgram)
+
+        codegen_obj = PTOCodegen()
+        mlir_code = _get_mlir_code(codegen_obj.generate(transformed_program))
+
+        # Stride [32, 1] should appear in the strides field (not [32, 32] as row-major would give)
+        assert "strides = [%c32, %c1]" in mlir_code
+
+    def test_explicit_stride_with_layout(self):
+        """Stride with explicit layout both appear correctly."""
+        backend.reset_for_testing()
+        backend.set_backend_type(BackendType.PTO)
+
+        @pl.program
+        class StridedLayoutProgram:
+            @pl.function
+            def strided_layout_func(self, a: pl.Tensor[[32, 32], pl.FP32, pl.NZ, [32, 1]]):
+                tile = pl.load(a, offsets=[0, 0], shapes=[32, 32])
+                pl.store(tile, offsets=[0, 0], shapes=[32, 32], output_tensor=a)
+
+        pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+        transformed_program = pm.run_passes(StridedLayoutProgram)
+
+        codegen_obj = PTOCodegen()
+        mlir_code = _get_mlir_code(codegen_obj.generate(transformed_program))
+
+        assert "strides = [%c32, %c1]" in mlir_code
+
+    def test_no_explicit_stride_uses_row_major(self):
+        """Without explicit stride, 2D tensor uses row-major strides [dim1, 1]."""
+        backend.reset_for_testing()
+        backend.set_backend_type(BackendType.PTO)
+
+        @pl.program
+        class NoStrideProgram:
+            @pl.function
+            def no_stride_func(self, a: pl.Tensor[[32, 64], pl.FP32]):
+                tile = pl.load(a, offsets=[0, 0], shapes=[32, 32])
+                pl.store(tile, offsets=[0, 0], shapes=[32, 32], output_tensor=a)
+
+        pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+        transformed_program = pm.run_passes(NoStrideProgram)
+
+        codegen_obj = PTOCodegen()
+        mlir_code = _get_mlir_code(codegen_obj.generate(transformed_program))
+
+        # Default row-major for [32, 64]: strides = [64, 1]
+        assert "strides = [%c64, %c1]" in mlir_code
+
+
+class TestMakeTensorCodegen:
+    """Tests for pl.make_tensor body op generating pto.make_tensor_view in function body."""
+
+    def test_make_tensor_emits_view_in_body(self):
+        """pl.make_tensor in function body generates pto.make_tensor_view before return."""
+        backend.reset_for_testing()
+        backend.set_backend_type(BackendType.PTO)
+
+        @pl.program
+        class MakeTensorProgram:
+            @pl.function
+            def make_tensor_func(self, a: pl.Ptr[pl.FP32]):
+                view: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(a, [32, 32], [32, 1])
+                tile = pl.load(view, offsets=[0, 0], shapes=[32, 32])
+                pl.store(tile, offsets=[0, 0], shapes=[32, 32], output_tensor=view)
+
+        pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+        transformed_program = pm.run_passes(MakeTensorProgram)
+
+        codegen_obj = PTOCodegen()
+        mlir_code = _get_mlir_code(codegen_obj.generate(transformed_program))
+
+        # pto.make_tensor_view must appear in the function body (after the header)
+        assert "pto.make_tensor_view" in mlir_code
+        # The body make_tensor_view should have the user-specified shape and stride
+        assert "shape = [%c32, %c32]" in mlir_code
+        assert "strides = [%c32, %c1]" in mlir_code
+        # It must appear before "return"
+        view_pos = mlir_code.find("pto.make_tensor_view")
+        return_pos = mlir_code.rfind("return")
+        assert view_pos < return_pos, "make_tensor_view must appear before return"
+
+
+class TestAddPtrCodegen:
+    """Tests for pl.addptr generating pto.addptr in ptoas codegen."""
+
+    def test_addptr_emits_pto_addptr(self):
+        """pl.addptr generates pto.addptr and pl.make_tensor generates pto.make_tensor_view."""
+        backend.reset_for_testing()
+        backend.set_backend_type(BackendType.PTO)
+
+        @pl.program
+        class AddPtrProgram:
+            @pl.function
+            def addptr_func(self, workspace: pl.Ptr[pl.FP32]):
+                buf0: pl.Ptr[pl.FP32] = pl.addptr(workspace, 0)
+                buf1: pl.Ptr[pl.FP32] = pl.addptr(buf0, 1024)
+                view0: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(buf0, [32, 32], [32, 1])
+                view1: pl.Tensor[[32, 32], pl.FP32] = pl.make_tensor(buf1, [32, 32], [32, 1])
+
+        pm = PassManager.get_strategy(OptimizationStrategy.PTOAS)
+        transformed_program = pm.run_passes(AddPtrProgram)
+
+        codegen_obj = PTOCodegen()
+        mlir_code = _get_mlir_code(codegen_obj.generate(transformed_program))
+
+        # pto.addptr must appear for each addptr call
+        assert "pto.addptr" in mlir_code
+        assert mlir_code.count("pto.addptr") == 2
+
+        # pto.make_tensor_view must appear for each make_tensor call
+        assert mlir_code.count("pto.make_tensor_view") == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

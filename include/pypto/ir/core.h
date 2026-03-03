@@ -100,6 +100,7 @@ enum class ObjectKind {
   UnknownType,
   MemRefType,
   ScalarType,
+  PtrType,
   ShapedType,
   TensorType,
   TileType,

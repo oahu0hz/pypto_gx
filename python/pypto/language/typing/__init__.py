@@ -19,6 +19,7 @@ from typing import TypeAlias
 
 from pypto.language.typing.direction import InOut, Out
 from pypto.language.typing.dynamic import DynVar, dynamic
+from pypto.language.typing.ptr import Ptr
 from pypto.language.typing.scalar import Scalar
 from pypto.language.typing.tensor import Tensor
 from pypto.language.typing.tile import Tile
@@ -27,4 +28,4 @@ from pypto.pypto_core.ir import Expr
 IntLike: TypeAlias = int | Scalar | Expr
 """Type alias for shape/offset parameters that accept int literals, Scalar DSL values, or raw Expr."""
 
-__all__ = ["DynVar", "InOut", "IntLike", "Out", "Scalar", "Tensor", "Tile", "dynamic"]
+__all__ = ["DynVar", "InOut", "IntLike", "Out", "Ptr", "Scalar", "Tensor", "Tile", "dynamic"]
