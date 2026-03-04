@@ -467,6 +467,36 @@ class TestStatementSerialization:
 
         ir.assert_structural_equal(seq, restored, enable_auto_mapping=True)
 
+    def test_serialize_section_stmt_vector(self):
+        """Test serialization of SectionStmt with Vector kind."""
+        x = ir.Var("x", ir.TensorType([64], DataType.FP32), ir.Span.unknown())
+        y = ir.Var("y", ir.TensorType([64], DataType.FP32), ir.Span.unknown())
+
+        body = ir.AssignStmt(y, x, ir.Span.unknown())
+        section = ir.SectionStmt(ir.SectionKind.Vector, body, ir.Span.unknown())
+
+        data = ir.serialize(section)
+        restored = ir.deserialize(data)
+        restored_section = cast(ir.SectionStmt, restored)
+
+        ir.assert_structural_equal(section, restored, enable_auto_mapping=True)
+        assert restored_section.section_kind == ir.SectionKind.Vector
+
+    def test_serialize_section_stmt_cube(self):
+        """Test serialization of SectionStmt with Cube kind."""
+        x = ir.Var("x", ir.TensorType([64], DataType.FP32), ir.Span.unknown())
+        y = ir.Var("y", ir.TensorType([64], DataType.FP32), ir.Span.unknown())
+
+        body = ir.AssignStmt(y, x, ir.Span.unknown())
+        section = ir.SectionStmt(ir.SectionKind.Cube, body, ir.Span.unknown())
+
+        data = ir.serialize(section)
+        restored = ir.deserialize(data)
+        restored_section = cast(ir.SectionStmt, restored)
+
+        ir.assert_structural_equal(section, restored, enable_auto_mapping=True)
+        assert restored_section.section_kind == ir.SectionKind.Cube
+
 
 class TestFunctionSerialization:
     """Tests for Function and Program serialization."""

@@ -287,7 +287,7 @@ class IRBuilder {
    *
    * @param scope_kind The kind of scope (e.g., InCore)
    * @param span Source location for scope statement
-   * @throws RuntimeError if not inside a function or loop
+   * @throws RuntimeError if not inside a function or another valid context
    */
   void BeginScope(ScopeKind scope_kind, const Span& span);
 
@@ -301,6 +301,31 @@ class IRBuilder {
    * @throws RuntimeError if not inside a scope context
    */
   StmtPtr EndScope(const Span& end_span);
+
+  // ========== Section Building ==========
+
+  /**
+   * @brief Begin building a section statement
+   *
+   * Creates a new section context and pushes it onto the context stack.
+   * Must be closed with EndSection().
+   *
+   * @param section_kind The kind of section (Vector or Cube)
+   * @param span Source location for section statement
+   * @throws RuntimeError if not inside a function or another valid context
+   */
+  void BeginSection(SectionKind section_kind, const Span& span);
+
+  /**
+   * @brief End building a section statement
+   *
+   * Finalizes the section statement and pops the context from the stack.
+   *
+   * @param end_span Source location for end of section
+   * @return The built section statement
+   * @throws RuntimeError if not inside a section context
+   */
+  StmtPtr EndSection(const Span& end_span);
 
   // ========== Statement Recording ==========
 
@@ -498,7 +523,7 @@ class IRBuilder {
  */
 class BuildContext {
  public:
-  enum class Type { FUNCTION, FOR_LOOP, WHILE_LOOP, IF_STMT, SCOPE, PROGRAM };
+  enum class Type { FUNCTION, FOR_LOOP, WHILE_LOOP, IF_STMT, SCOPE, SECTION, PROGRAM };
 
   explicit BuildContext(Type type, Span span) : type_(type), begin_span_(std::move(span)) {}
   virtual ~BuildContext() = default;
@@ -653,6 +678,24 @@ class ScopeContext : public BuildContext {
 
  private:
   ScopeKind scope_kind_;
+  std::vector<StmtPtr> stmts_;
+};
+
+/**
+ * @brief Context for building a section statement
+ */
+class SectionContext : public BuildContext {
+ public:
+  SectionContext(SectionKind section_kind, Span span)
+      : BuildContext(Type::SECTION, std::move(span)), section_kind_(section_kind) {}
+
+  void AddStmt(const StmtPtr& stmt) override { stmts_.push_back(stmt); }
+
+  [[nodiscard]] SectionKind GetSectionKind() const { return section_kind_; }
+  [[nodiscard]] const std::vector<StmtPtr>& GetStmts() const { return stmts_; }
+
+ private:
+  SectionKind section_kind_;
   std::vector<StmtPtr> stmts_;
 };
 

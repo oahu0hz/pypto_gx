@@ -233,6 +233,25 @@ void BindIRBuilder(nb::module_& m) {
            "Raises:\n"
            "    RuntimeError: If not inside a scope context")
 
+      // Section building
+      .def("begin_section", &IRBuilder::BeginSection, nb::arg("section_kind"), nb::arg("span"),
+           "Begin building a section statement.\n\n"
+           "Creates a new section context. Must be closed with end_section().\n\n"
+           "Args:\n"
+           "    section_kind: The kind of section (Vector or Cube)\n"
+           "    span: Source location for section statement\n\n"
+           "Raises:\n"
+           "    RuntimeError: If not inside a function or loop")
+      .def("end_section", &IRBuilder::EndSection, nb::arg("end_span"),
+           "End building a section statement.\n\n"
+           "Finalizes the section statement and returns it.\n\n"
+           "Args:\n"
+           "    end_span: Source location for end of section\n\n"
+           "Returns:\n"
+           "    SectionStmt: The built section statement\n\n"
+           "Raises:\n"
+           "    RuntimeError: If not inside a section context")
+
       // Statement recording
       .def("emit", &IRBuilder::Emit, nb::arg("stmt"),
            "Emit a statement in the current context.\n\n"

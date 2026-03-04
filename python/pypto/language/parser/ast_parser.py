@@ -989,6 +989,8 @@ class ASTParser:
 
         Currently supports:
         - with pl.incore(): ... (creates ScopeStmt with InCore scope)
+        - with pl.section_vector(): ... (creates SectionStmt with Vector section)
+        - with pl.section_cube(): ... (creates SectionStmt with Cube section)
 
         Args:
             stmt: With AST node
@@ -998,33 +1000,50 @@ class ASTParser:
             raise ParserSyntaxError(
                 "Only single context manager supported in with statement",
                 span=self.span_tracker.get_span(stmt),
-                hint="Use 'with pl.incore():' without multiple context managers",
+                hint="Use 'with pl.incore():' or 'with pl.section_vector():' without multiple context managers",
             )
 
         item = stmt.items[0]
         context_expr = item.context_expr
 
-        # Check if this is pl.incore()
+        # Check if this is pl.incore(), pl.section_vector(), or pl.section_cube()
         if isinstance(context_expr, ast.Call):
             func = context_expr.func
-            if isinstance(func, ast.Attribute) and func.attr == "incore":
-                # This is pl.incore()
+            if isinstance(func, ast.Attribute):
                 span = self.span_tracker.get_span(stmt)
-
-                # Begin scope
-                with self.builder.scope(ir.ScopeKind.InCore, span):
-                    # Variables leak through scope (it's transparent)
-                    self.scope_manager.enter_scope("scope")
-                    for body_stmt in stmt.body:
-                        self.parse_statement(body_stmt)
-                    self.scope_manager.exit_scope(leak_vars=True)
-                return
+                
+                # Handle pl.incore() - creates ScopeStmt
+                if func.attr == "incore":
+                    with self.builder.scope(ir.ScopeKind.InCore, span):
+                        self.scope_manager.enter_scope("scope")
+                        for body_stmt in stmt.body:
+                            self.parse_statement(body_stmt)
+                        self.scope_manager.exit_scope(leak_vars=True)
+                    return
+                
+                # Handle pl.section_vector() - creates SectionStmt
+                if func.attr == "section_vector":
+                    with self.builder.section(ir.SectionKind.Vector, span):
+                        self.scope_manager.enter_scope("section")
+                        for body_stmt in stmt.body:
+                            self.parse_statement(body_stmt)
+                        self.scope_manager.exit_scope(leak_vars=True)
+                    return
+                
+                # Handle pl.section_cube() - creates SectionStmt
+                if func.attr == "section_cube":
+                    with self.builder.section(ir.SectionKind.Cube, span):
+                        self.scope_manager.enter_scope("section")
+                        for body_stmt in stmt.body:
+                            self.parse_statement(body_stmt)
+                        self.scope_manager.exit_scope(leak_vars=True)
+                    return
 
         # Unsupported context manager
         raise UnsupportedFeatureError(
             "Unsupported context manager in with statement",
             span=self.span_tracker.get_span(stmt),
-            hint="Only 'with pl.incore():' is currently supported",
+            hint="Only 'with pl.incore():', 'with pl.section_vector():', or 'with pl.section_cube():' are currently supported",
         )
 
     def parse_return(self, stmt: ast.Return) -> None:

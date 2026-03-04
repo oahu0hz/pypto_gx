@@ -140,6 +140,7 @@ class PTOCodegen : public CodegenBase {
   void VisitStmt_(const ir::IfStmtPtr& op) override;
   void VisitStmt_(const ir::YieldStmtPtr& op) override;
   void VisitStmt_(const ir::EvalStmtPtr& op) override;
+  void VisitStmt_(const ir::SectionStmtPtr& op) override;
 
   // Override visitor methods for code generation - Expressions
   void VisitExpr_(const ir::CallPtr& op) override;

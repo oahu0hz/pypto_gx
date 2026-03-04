@@ -191,6 +191,7 @@ class IRPythonPrinter : public IRVisitor {
   void VisitStmt_(const ForStmtPtr& op) override;
   void VisitStmt_(const WhileStmtPtr& op) override;
   void VisitStmt_(const ScopeStmtPtr& op) override;
+  void VisitStmt_(const SectionStmtPtr& op) override;
   void VisitStmt_(const SeqStmtsPtr& op) override;
   void VisitStmt_(const OpStmtsPtr& op) override;
   void VisitStmt_(const EvalStmtPtr& op) override;
@@ -783,6 +784,24 @@ void IRPythonPrinter::VisitStmt_(const ScopeStmtPtr& op) {
   auto it = scope_kind_to_dsl.find(op->scope_kind_);
   INTERNAL_CHECK(it != scope_kind_to_dsl.end())
       << "Internal error: Unknown ScopeKind in python_printer: " << ScopeKindToString(op->scope_kind_);
+
+  stream_ << "with " << prefix_ << "." << it->second << "():\n";
+
+  IncreaseIndent();
+  PrintStmtBlock(op->body_);
+  DecreaseIndent();
+}
+
+void IRPythonPrinter::VisitStmt_(const SectionStmtPtr& op) {
+  // Map SectionKind to DSL function name
+  static const std::unordered_map<SectionKind, std::string> section_kind_to_dsl = {
+      {SectionKind::Vector, "section_vector"},
+      {SectionKind::Cube, "section_cube"},
+  };
+
+  auto it = section_kind_to_dsl.find(op->section_kind_);
+  INTERNAL_CHECK(it != section_kind_to_dsl.end())
+      << "Internal error: Unknown SectionKind in python_printer: " << SectionKindToString(op->section_kind_);
 
   stream_ << "with " << prefix_ << "." << it->second << "():\n";
 

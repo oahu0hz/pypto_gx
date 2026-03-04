@@ -1338,5 +1338,101 @@ class TestIRBuilderProgram:
                 p.get_global_var("nonexistent")
 
 
+class TestIRBuilderSectionVector:
+    """Test IR Builder for Vector section construction."""
+
+    def test_simple_section_vector(self):
+        """Test building a simple Vector section."""
+        ib = IRBuilder()
+
+        with ib.function("section_vector_test") as f:
+            x = f.param("x", ir.ScalarType(DataType.INT64))
+            f.return_type(ir.ScalarType(DataType.INT64))
+
+            with ib.section(ir.SectionKind.Vector):
+                result = ib.var("result", ir.ScalarType(DataType.INT64))
+                add_expr = ir.Add(x, x, DataType.INT64, ir.Span.unknown())
+                ib.assign(result, add_expr)
+
+        func = f.get_result()
+
+        assert func is not None
+        assert isinstance(func.body, ir.SectionStmt)
+        assert func.body.section_kind == ir.SectionKind.Vector
+
+    def test_section_vector_with_multiple_statements(self):
+        """Test Vector section with multiple statements in body."""
+        ib = IRBuilder()
+
+        with ib.function("multi_section_test") as f:
+            x = f.param("x", ir.ScalarType(DataType.INT64))
+            f.return_type(ir.ScalarType(DataType.INT64))
+
+            with ib.section(ir.SectionKind.Vector):
+                a = ib.var("a", ir.ScalarType(DataType.INT64))
+                b = ib.var("b", ir.ScalarType(DataType.INT64))
+
+                add_expr = ir.Add(x, x, DataType.INT64, ir.Span.unknown())
+                ib.assign(a, add_expr)
+
+                mul_expr = ir.Mul(a, a, DataType.INT64, ir.Span.unknown())
+                ib.assign(b, mul_expr)
+
+        func = f.get_result()
+
+        assert func is not None
+        assert isinstance(func.body, ir.SectionStmt)
+        assert func.body.section_kind == ir.SectionKind.Vector
+        assert isinstance(func.body.body, ir.SeqStmts)
+
+
+class TestIRBuilderSectionCube:
+    """Test IR Builder for Cube section construction."""
+
+    def test_simple_section_cube(self):
+        """Test building a simple Cube section."""
+        ib = IRBuilder()
+
+        with ib.function("section_cube_test") as f:
+            x = f.param("x", ir.ScalarType(DataType.INT64))
+            f.return_type(ir.ScalarType(DataType.INT64))
+
+            with ib.section(ir.SectionKind.Cube):
+                result = ib.var("result", ir.ScalarType(DataType.INT64))
+                mul_expr = ir.Mul(x, x, DataType.INT64, ir.Span.unknown())
+                ib.assign(result, mul_expr)
+
+        func = f.get_result()
+
+        assert func is not None
+        assert isinstance(func.body, ir.SectionStmt)
+        assert func.body.section_kind == ir.SectionKind.Cube
+
+    def test_section_cube_with_multiple_statements(self):
+        """Test Cube section with multiple statements in body."""
+        ib = IRBuilder()
+
+        with ib.function("multi_section_test") as f:
+            x = f.param("x", ir.ScalarType(DataType.INT64))
+            f.return_type(ir.ScalarType(DataType.INT64))
+
+            with ib.section(ir.SectionKind.Cube):
+                a = ib.var("a", ir.ScalarType(DataType.INT64))
+                b = ib.var("b", ir.ScalarType(DataType.INT64))
+
+                add_expr = ir.Add(x, x, DataType.INT64, ir.Span.unknown())
+                ib.assign(a, add_expr)
+
+                mul_expr = ir.Mul(a, a, DataType.INT64, ir.Span.unknown())
+                ib.assign(b, mul_expr)
+
+        func = f.get_result()
+
+        assert func is not None
+        assert isinstance(func.body, ir.SectionStmt)
+        assert func.body.section_kind == ir.SectionKind.Cube
+        assert isinstance(func.body.body, ir.SeqStmts)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
