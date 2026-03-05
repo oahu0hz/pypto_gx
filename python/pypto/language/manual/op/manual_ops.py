@@ -200,13 +200,23 @@ def fillpad(tile: Tile, out: Tile) -> None:
 
 
 def get_block_idx() -> Scalar:
-    """Return the current block index (unchanged from SSA style).
+    """Return to current block index (unchanged from SSA style).
 
     Returns:
-        Scalar wrapping the block index (UINT64 type).
+        Scalar wrapping to block index (UINT64 type).
     """
     from pypto.language.op.block_ops import get_block_idx as _get_block_idx
     return _get_block_idx()
+
+
+def get_subblock_idx() -> Scalar:
+    """Return to current subblock index (unchanged from SSA style).
+
+    Returns:
+        Scalar wrapping to subblock index (UINT64 type).
+    """
+    from pypto.language.op.block_ops import get_subblock_idx as _get_subblock_idx
+    return _get_subblock_idx()
 
 
 # ---------------------------------------------------------------------------
@@ -618,7 +628,7 @@ __all__ = [
     # Allocation
     "create_tile",
     # Memory
-    "load", "store", "l0c_store", "move", "ub_copy", "full", "fillpad", "get_block_idx",
+    "load", "store", "l0c_store", "move", "ub_copy", "full", "fillpad", "get_block_idx", "get_subblock_idx",
     # Tile x Tile binary
     "add", "sub", "mul", "div", "rem", "maximum", "minimum",
     "and_", "or_", "shl", "shr",

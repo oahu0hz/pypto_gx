@@ -249,11 +249,6 @@ static std::string MakeBlockLoadCodegenPTO(const CallPtr& op, codegen::CodegenBa
   INTERNAL_CHECK(shapes_tuple) << "block.load third argument must be a tuple (shapes)";
 
   // Extract 2D offset and size values from tuples
-  int64_t row_off = codegen.GetConstIntValue(offsets_tuple->elements_[0]);
-  int64_t col_off = codegen.GetConstIntValue(offsets_tuple->elements_[1]);
-  int64_t height = codegen.GetConstIntValue(shapes_tuple->elements_[0]);
-  int64_t width = codegen.GetConstIntValue(shapes_tuple->elements_[1]);
-
   auto tensor_type = As<TensorType>(tensor->GetType());
   INTERNAL_CHECK(tensor_type) << "block.load tensor argument must have TensorType";
 
@@ -264,16 +259,27 @@ static std::string MakeBlockLoadCodegenPTO(const CallPtr& op, codegen::CodegenBa
 
   std::string tensor_view_type = codegen.GetTensorViewTypeString(tensor_type.get());
   std::string tile_buf_type = codegen.GetCurrentResultTileBufTypeString();
-  std::string partition_type = "!pto.partition_tensor_view<" + std::to_string(height) + "x" +
-                               std::to_string(width) + "x" + dtype_str + ">";
+  
+  // Determine partition_tensor_view type: static if shapes are constants, dynamic otherwise
+  std::string partition_type;
+  auto const_height = As<ir::ConstInt>(shapes_tuple->elements_[0]);
+  auto const_width = As<ir::ConstInt>(shapes_tuple->elements_[1]);
+  if (const_height && const_width) {
+    partition_type = "!pto.partition_tensor_view<" + std::to_string(const_height->value_) + "x" +
+                   std::to_string(const_width->value_) + "x" + dtype_str + ">";
+  } else {
+    partition_type = "!pto.partition_tensor_view<?x?" + dtype_str + ">";
+  }
 
   std::string partition_view = codegen.NewTemp();
   std::ostringstream partition_line;
   partition_line << partition_view << " = pto.partition_view " << tensor_view;
-  partition_line << ", offsets = [" << codegen.GetIndexConstant(row_off) << ", ";
-  partition_line << codegen.GetIndexConstant(col_off) << "]";
-  partition_line << ", sizes = [" << codegen.GetIndexConstant(height) << ", ";
-  partition_line << codegen.GetIndexConstant(width) << "]";
+  partition_line << ", offsets = [";
+  partition_line << codegen.GetExprAsCode(offsets_tuple->elements_[0]) << ", ";
+  partition_line << codegen.GetExprAsCode(offsets_tuple->elements_[1]) << "]";
+  partition_line << ", sizes = [";
+  partition_line << codegen.GetExprAsCode(shapes_tuple->elements_[0]) << ", ";
+  partition_line << codegen.GetExprAsCode(shapes_tuple->elements_[1]) << "]";
   partition_line << " : " << tensor_view_type << " -> " << partition_type;
   codegen.Emit(partition_line.str());
 
@@ -298,14 +304,10 @@ static std::string MakeBlockStoreCodegenPTO(const CallPtr& op, codegen::CodegenB
   auto shapes_tuple = As<ir::MakeTuple>(op->args_[2]);
   INTERNAL_CHECK(shapes_tuple) << "block.store third argument must be a tuple (shapes)";
 
-  // Extract 2D offset and size values from tuples
-  int64_t row_off = codegen.GetConstIntValue(offsets_tuple->elements_[0]);
-  int64_t col_off = codegen.GetConstIntValue(offsets_tuple->elements_[1]);
-  int64_t height = codegen.GetConstIntValue(shapes_tuple->elements_[0]);
-  int64_t width = codegen.GetConstIntValue(shapes_tuple->elements_[1]);
   auto output_tensor = As<Var>(op->args_[3]);
   INTERNAL_CHECK(output_tensor) << "block.store output_tensor must be a Var";
 
+  // Extract 2D offset and size values from tuples (support variables)
   auto tensor_type = As<TensorType>(output_tensor->GetType());
   INTERNAL_CHECK(tensor_type) << "block.store output_tensor must have TensorType";
 
@@ -314,24 +316,28 @@ static std::string MakeBlockStoreCodegenPTO(const CallPtr& op, codegen::CodegenB
   std::string tile_buf = codegen.GetVarName(tile);
 
   std::string tensor_view_type = codegen.GetTensorViewTypeString(tensor_type.get());
-  std::string partition_type = "!pto.partition_tensor_view<" + std::to_string(height) + "x" +
-                               std::to_string(width) + "x" + dtype_str + ">";
-
-  // Get tile_buf type from the tile variable's TileType
-  std::string tile_buf_type;
-  if (auto tile_type = As<ir::TileType>(tile->GetType())) {
-    if (tile_type->memref_.has_value()) {
-      tile_buf_type = codegen.GetTileBufTypeString(tile_type->memref_.value().get());
-    }
+  std::string tile_buf_type = codegen.GetCurrentResultTileBufTypeString();
+  
+  // Determine partition_tensor_view type: static if shapes are constants, dynamic otherwise
+  std::string partition_type;
+  auto const_height = As<ir::ConstInt>(shapes_tuple->elements_[0]);
+  auto const_width = As<ir::ConstInt>(shapes_tuple->elements_[1]);
+  if (const_height && const_width) {
+    partition_type = "!pto.partition_tensor_view<" + std::to_string(const_height->value_) + "x" +
+                   std::to_string(const_width->value_) + "x" + dtype_str + ">";
+  } else {
+    partition_type = "!pto.partition_tensor_view<?x?" + dtype_str + ">";
   }
 
   std::string partition_view = codegen.NewTemp();
   std::ostringstream partition_line;
   partition_line << partition_view << " = pto.partition_view " << tensor_view;
-  partition_line << ", offsets = [" << codegen.GetIndexConstant(row_off) << ", ";
-  partition_line << codegen.GetIndexConstant(col_off) << "]";
-  partition_line << ", sizes = [" << codegen.GetIndexConstant(height) << ", ";
-  partition_line << codegen.GetIndexConstant(width) << "]";
+  partition_line << ", offsets = [";
+  partition_line << codegen.GetExprAsCode(offsets_tuple->elements_[0]) << ", ";
+  partition_line << codegen.GetExprAsCode(offsets_tuple->elements_[1]) << "]";
+  partition_line << ", sizes = [";
+  partition_line << codegen.GetExprAsCode(shapes_tuple->elements_[0]) << ", ";
+  partition_line << codegen.GetExprAsCode(shapes_tuple->elements_[1]) << "]";
   partition_line << " : " << tensor_view_type << " -> " << partition_type;
   codegen.Emit(partition_line.str());
 
@@ -576,6 +582,72 @@ REGISTER_BACKEND_OP(Backend910B_PTO, "block.print")
     .set_pipe(ir::PipeType::V)
     .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
       return MakePrintCodegenPTO("pto.tprint", op, codegen);
+    });
+
+// Helper function for block.get_block_idx
+static std::string MakeBlockGetBlockIdxCodegenPTO(const ir::CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  CHECK(op->args_.size() == 0) << "block.get_block_idx requires no arguments";
+
+  // Create a new SSA variable for the scalar result
+  std::string result = codegen.NewTemp();
+  codegen.Emit(result + " = pto.get_block_idx");
+
+  // Register the result variable mapping
+  codegen.SetVarMlirName(codegen.GetCurrentResultVarName(), result);
+
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "block.get_block_idx")
+    .set_pipe(ir::PipeType::V)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBlockGetBlockIdxCodegenPTO(op, codegen);
+    });
+
+// Helper function for block.get_subblock_idx
+static std::string MakeBlockGetSubblockIdxIdxCodegenPTO(const ir::CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  CHECK(op->args_.size() == 0) << "block.get_subblock_idx requires no arguments";
+
+  // Create a new SSA variable for the scalar result
+  std::string result = codegen.NewTemp();
+  codegen.Emit(result + " = pto.get_subblock_idx");
+
+  // Register the result variable mapping
+  codegen.SetVarMlirName(codegen.GetCurrentResultVarName(), result);
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "block.get_subblock_idx")
+    .set_pipe(ir::PipeType::V)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBlockGetSubblockIdxIdxCodegenPTO(op, codegen);
+    });
+
+// Helper function for block.index_cast
+static std::string MakeBlockIndexCastCodegenPTO(const ir::CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  CHECK(op->args_.size() == 1) << "block.index_cast requires 1 argument";
+
+  std::string idx = codegen.GetExprAsCode(op->args_[0]);
+
+  // Create a new SSA variable for the result
+  std::string result = codegen.NewTemp();
+
+  // Emit arith.index_cast operation
+  codegen.Emit(result + " = arith.index_cast " + idx + " : i64 to index");
+
+  // Register result variable mapping
+  codegen.SetVarMlirName(codegen.GetCurrentResultVarName(), result);
+
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "block.index_cast")
+    .set_pipe(ir::PipeType::V)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBlockIndexCastCodegenPTO(op, codegen);
     });
 
 // ptr.make_tensor: emit pto.make_tensor_view in function body
