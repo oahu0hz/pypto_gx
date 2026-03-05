@@ -131,8 +131,8 @@ def compile(prog, clean_up=False, timeout=20):
     # step 1, Program -> PtoAs-mlir
     codegen = PTOCodegen()
     mlir_code = _get_mlir_code(codegen.generate(prog))
-    # print("mlir code is:")
-    # print(mlir_code)
+    print("mlir code is:")
+    print(mlir_code)
     # return
     with open(ir_path, "w") as f:
         f.write(mlir_code)
