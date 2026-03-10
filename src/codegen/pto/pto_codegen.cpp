@@ -362,15 +362,31 @@ void PTOCodegen::EmitMakeTensorViews(const FunctionPtr& func) {
       stream_ << "]";
 
       stream_ << " strides = [";
-      if (tensor_type->shape_.size() == 2) {
-        if (auto var = As<ir::Var>(tensor_type->shape_[1])) {
-          stream_ << var_to_mlir_.at(var->name_);
-        } else {
-          stream_ << GetOrEmitIndexConstant(GetConstIntValue(tensor_type->shape_[1]));
+      const bool has_custom_stride = tensor_type->tensor_view_.has_value() &&
+                                      !tensor_type->tensor_view_->stride.empty();
+      if (has_custom_stride) {
+        // Use user-specified strides from pl.view(stride=[...])
+        const auto& stride = tensor_type->tensor_view_->stride;
+        for (size_t j = 0; j < stride.size(); j++) {
+          if (j > 0) stream_ << ", ";
+          if (auto var = As<ir::Var>(stride[j])) {
+            stream_ << var_to_mlir_.at(var->name_);
+          } else {
+            stream_ << GetOrEmitIndexConstant(GetConstIntValue(stride[j]));
+          }
         }
-        stream_ << ", " << GetOrEmitIndexConstant(1);
-      } else if (tensor_type->shape_.size() == 1) {
-        stream_ << GetOrEmitIndexConstant(1);
+      } else {
+        // Default: row-major stride derived from shape
+        if (tensor_type->shape_.size() == 2) {
+          if (auto var = As<ir::Var>(tensor_type->shape_[1])) {
+            stream_ << var_to_mlir_.at(var->name_);
+          } else {
+            stream_ << GetOrEmitIndexConstant(GetConstIntValue(tensor_type->shape_[1]));
+          }
+          stream_ << ", " << GetOrEmitIndexConstant(1);
+        } else if (tensor_type->shape_.size() == 1) {
+          stream_ << GetOrEmitIndexConstant(1);
+        }
       }
       stream_ << "]";
 
