@@ -177,10 +177,15 @@ class PTOCodegen : public CodegenBase {
   // Override visitor methods for code generation - Statements
   void VisitStmt_(const ir::AssignStmtPtr& op) override;
   void VisitStmt_(const ir::ForStmtPtr& op) override;
+  void VisitStmt_(const ir::WhileStmtPtr& op) override;
   void VisitStmt_(const ir::IfStmtPtr& op) override;
   void VisitStmt_(const ir::YieldStmtPtr& op) override;
   void VisitStmt_(const ir::EvalStmtPtr& op) override;
   void VisitStmt_(const ir::SectionStmtPtr& op) override;
+  void VisitStmt_(const ir::SeqStmtsPtr& op) override;
+  void VisitStmt_(const ir::OpStmtsPtr& op) override;
+  void VisitStmt_(const ir::BreakStmtPtr& op) override;
+  void VisitStmt_(const ir::ContinueStmtPtr& op) override;
 
   // Override visitor methods for code generation - Expressions
   void VisitExpr_(const ir::CallPtr& op) override;
@@ -200,6 +205,7 @@ class PTOCodegen : public CodegenBase {
   void VisitExpr_(const ir::LePtr& op) override;
   void VisitExpr_(const ir::GtPtr& op) override;
   void VisitExpr_(const ir::GePtr& op) override;
+  void VisitExpr_(const ir::NotPtr& op) override;
 
  private:
   /**

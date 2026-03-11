@@ -99,6 +99,15 @@ def add_kernel(
         target_memory=pl.MemorySpace.Vec,
     )
     tile_c = plm.make_tile(tile_type_c, addr=0x8000, size=16384)
+    # cidx = pl.block.get_block_idx()
+    # cidxi = pl.block.index_cast(cidx)
+    loop = 1
+    while (loop < 5):
+        if loop == 1:
+            loop = loop + 1
+            continue
+        plm.add(tile_a, tile_b, out=tile_c)
+        loop = loop + 1
     plm.add(tile_a, tile_b, out=tile_c)
     return b
 
@@ -175,9 +184,9 @@ def test_load_kernel():
     assert "pto.alloc_tile" in mlir, "Expected pto.alloc_tile"
     assert "dtype=f16" in mlir, "Expected f16 dtype"
     assert "rows=64, cols=128" in mlir, "Expected 64x128 tile shape"
-    # tile_b is at 0x4000 = 16384 — should carry explicit base_addr
+    # tile_b is at 0x4000 = 16384 — address emitted as SSA constant
     assert "v_row=32, v_col=64" in mlir, "Expected v_row=32, v_col=64 for valid_shape"
-    assert "base_addr = 16384" in mlir, "Expected base_addr = 16384 for tile_b"
+    assert "arith.constant 16384 : i64" in mlir, "Expected addr SSA constant 16384 for tile_b"
     assert "blayout=col_major" in mlir, "Expected blayout=col_major"
     assert "slayout=row_major" in mlir, "Expected slayout=row_major"
     assert "fractal=1" in mlir, "Expected fractal=0"
@@ -196,10 +205,10 @@ def test_add_kernel():
     # 3 tiles allocated
     n_alloc = mlir.count("pto.alloc_tile")
     assert n_alloc == 3, f"Expected 3 pto.alloc_tile, got {n_alloc}"
-    # tile_b at 0x4000 = 16384
-    assert "base_addr = 16384" in mlir, "Expected base_addr = 16384 for tile_b"
-    # tile_c at 0x8000 = 32768
-    assert "base_addr = 32768" in mlir, "Expected base_addr = 32768 for tile_c"
+    # tile_b at 0x4000 = 16384 — address emitted as SSA constant
+    assert "arith.constant 16384 : i64" in mlir, "Expected addr SSA constant 16384 for tile_b"
+    # tile_c at 0x8000 = 32768 — address emitted as SSA constant
+    assert "arith.constant 32768 : i64" in mlir, "Expected addr SSA constant 32768 for tile_c"
     # 2 loads and 1 add
     assert mlir.count("pto.tload") == 2, f"Expected 2 tloads, got {mlir.count('pto.tload')}"
     assert "pto.tadd" in mlir, "Expected pto.tadd"
@@ -228,9 +237,9 @@ def test_neg_kernel():
 
 
 if __name__ == "__main__":
-    test_load_kernel_with_jit()
-    test_load_kernel()
+    # test_load_kernel_with_jit()
+    # test_load_kernel()
     test_add_kernel()
-    test_mul_kernel()
-    test_neg_kernel()
+    # test_mul_kernel()
+    # test_neg_kernel()
     print("\nAll tests passed!")
