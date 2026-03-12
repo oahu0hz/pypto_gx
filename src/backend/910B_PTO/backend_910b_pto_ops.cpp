@@ -725,7 +725,7 @@ static std::string MakePtrMakeTensorCodegenPTO(const CallPtr& op, codegen::Codeg
     if (j > 0) oss << ", ";
     oss << codegen.GetExprAsCode(shape_tuple->elements_[j]);
   }
-  oss << "] strides = [";
+  oss << "], strides = [";
   for (size_t j = 0; j < stride_tuple->elements_.size(); j++) {
     if (j > 0) oss << ", ";
     oss << codegen.GetExprAsCode(stride_tuple->elements_[j]);
@@ -760,6 +760,95 @@ REGISTER_BACKEND_OP(Backend910B_PTO, "ptr.addptr")
     .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
       return MakePtrAddPtrCodegenPTO(op, codegen);
     });
+// System synchronization operations
+static std::string GetPipeTypeName(ir::PipeType pipe) {
+  switch (pipe) {
+    case ir::PipeType::MTE1: return "MTE1";
+    case ir::PipeType::MTE2: return "MTE2";
+    case ir::PipeType::MTE3: return "MTE3";
+    case ir::PipeType::M: return "M";
+    case ir::PipeType::V: return "V";
+    case ir::PipeType::S: return "S";
+    case ir::PipeType::FIX: return "FIX";
+    case ir::PipeType::ALL: return "ALL";
+    default: return "UNKNOWN";
+  }
+}
+
+static std::string MakeSyncSrcCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  auto set_pipe = op->GetKwarg<int>("set_pipe");
+  auto wait_pipe = op->GetKwarg<int>("wait_pipe");
+  auto event_id = op->GetKwarg<int>("event_id");
+  std::ostringstream oss;
+  oss << "pto.set_flag[<PIPE_" << GetPipeTypeName(static_cast<ir::PipeType>(set_pipe))
+      << ">, <PIPE_" << GetPipeTypeName(static_cast<ir::PipeType>(wait_pipe))
+      << ">, <EVENT_ID" << event_id << ">]";
+  codegen.Emit(oss.str());
+  return "";
+}
+
+static std::string MakeSyncDstCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  auto set_pipe = op->GetKwarg<int>("set_pipe");
+  auto wait_pipe = op->GetKwarg<int>("wait_pipe");
+  auto event_id = op->GetKwarg<int>("event_id");
+  std::ostringstream oss;
+  oss << "pto.wait_flag[<PIPE_" << GetPipeTypeName(static_cast<ir::PipeType>(set_pipe))
+      << ">, <PIPE_" << GetPipeTypeName(static_cast<ir::PipeType>(wait_pipe))
+      << ">, <EVENT_ID" << event_id << ">]";
+  codegen.Emit(oss.str());
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "system.sync_src")
+    .set_pipe(ir::PipeType::S)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeSyncSrcCodegenPTO(op, codegen);
+    });
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "system.sync_dst")
+    .set_pipe(ir::PipeType::S)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeSyncDstCodegenPTO(op, codegen);
+    });
+// Barrier operations
+static std::string MakeBarVCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  codegen.Emit("pto.barrier #pto.pipe<PIPE_V>");
+  return "";
+}
+
+static std::string MakeBarMCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  codegen.Emit("pto.barrier #pto.pipe<PIPE_M>");
+  return "";
+}
+
+static std::string MakeBarAllCodegenPTO(const CallPtr& op, codegen::CodegenBase& codegen_base) {
+  auto& codegen = dynamic_cast<codegen::PTOCodegen&>(codegen_base);
+  codegen.Emit("pto.barrier #pto.pipe<PIPE_ALL>");
+  return "";
+}
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "system.bar_v")
+    .set_pipe(ir::PipeType::S)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBarVCodegenPTO(op, codegen);
+    });
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "system.bar_m")
+    .set_pipe(ir::PipeType::S)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBarMCodegenPTO(op, codegen);
+    });
+
+REGISTER_BACKEND_OP(Backend910B_PTO, "system.bar_all")
+    .set_pipe(ir::PipeType::S)
+    .f_codegen([](const ir::CallPtr& op, codegen::CodegenBase& codegen) {
+      return MakeBarAllCodegenPTO(op, codegen);
+    });
+
 
 }  // namespace backend
 }  // namespace pypto
